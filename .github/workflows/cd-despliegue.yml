@@ -67,7 +67,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - uses: ./.github/actions/preparar
@@ -82,13 +82,13 @@ jobs:
 
       - name: Build del DACPAC ${{ steps.version.outputs.version }}
         run: |
-          V="${{ steps.version.outputs.version }}"
-          dotnet build "$PROYECTO" -c Release -p:DacVersion="${V#v}"
-          mkdir -p evidencias && cp "$DACPAC_BUILD" "evidencias/BI_Analitico-${V}.dacpac"
+          V="${{ steps.version.outputs.version }}"; mkdir -p evidencias
+          scripts/ci/build.sh "$V" evidencias/build.log
+          cp "$DACPAC_BUILD" "evidencias/BI_Analitico-${V}.dacpac"
 
       - name: Pull Request de origen, aprobaciones y autorizaciones
         id: pr
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
           ROL_TI: ${{ vars.ROL_TI }}
         with:
@@ -172,7 +172,7 @@ jobs:
             python3 scripts/ci/db.py --base "$DB" pruebas --carpeta tests/datos --salida evidencias/pruebas.json
           fi
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         if: always()
         with:
           name: evidencias-${{ env.DB }}-${{ steps.version.outputs.version }}
@@ -275,18 +275,18 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - uses: ./.github/actions/preparar
       - name: Generar diccionario
         run: |
-          dotnet build "$PROYECTO" -c Release -nologo -v q
+          scripts/ci/build.sh "${{ needs.desplegar.outputs.version }}" build.log
           gh release list --limit 30 --json tagName,name,publishedAt \
             --jq '[.[] | {tag: .tagName, titulo: .name, fecha: .publishedAt, url: ("${{ github.server_url }}/${{ github.repository }}/releases/tag/" + .tagName)}]' > releases.json
           python3 scripts/ci/documentar.py sitio --dacpac "$DACPAC_BUILD" --proyecto database \
             --releases releases.json --version "${{ needs.desplegar.outputs.version }}" --salida sitio
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v4
         with:
           path: sitio
       - id: pages

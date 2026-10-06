@@ -8,7 +8,7 @@ runs:
   using: composite
   steps:
     - if: inputs.dotnet == 'true'
-      uses: actions/setup-dotnet@v4
+      uses: actions/setup-dotnet@v5
       with:
         dotnet-version: 8.0.x
     - if: inputs.dotnet == 'true'
@@ -17,7 +17,7 @@ runs:
       run: |
         dotnet tool install --global microsoft.sqlpackage >/dev/null
         echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
-    - uses: actions/setup-python@v5
+    - uses: actions/setup-python@v6
       with:
         python-version: "3.12"
     - name: Librerías Python

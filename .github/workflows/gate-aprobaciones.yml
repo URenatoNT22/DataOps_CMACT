@@ -35,7 +35,7 @@ jobs:
     name: Aprobaciones requeridas
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/github-script@v7
+      - uses: actions/github-script@v8
         env:
           ROL_DATA_ENGINEERING: ${{ vars.ROL_DATA_ENGINEERING }}
           ROL_JEFE_IN: ${{ vars.ROL_JEFE_IN }}

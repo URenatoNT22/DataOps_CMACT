@@ -39,7 +39,7 @@ jobs:
         id: cfg
         run: |
           if [ -z "$SQL_SERVER" ]; then echo "::notice::Secretos no configurados"; echo "ok=false" >> "$GITHUB_OUTPUT"; else echo "ok=true" >> "$GITHUB_OUTPUT"; fi
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         if: steps.cfg.outputs.ok == 'true'
         with:
           ref: ${{ matrix.rama }}
@@ -59,7 +59,7 @@ jobs:
             mv "drift/BI_Analitico-$TAG.dacpac" drift/esperado.dacpac
             echo "referencia=release $TAG" >> "$GITHUB_OUTPUT"
           else
-            dotnet build database/BI_Analitico/BI_Analitico.sqlproj -c Release -nologo -v q
+            scripts/ci/build.sh 0.0.0 drift/build.log
             cp database/BI_Analitico/bin/Release/BI_Analitico.dacpac drift/esperado.dacpac
             echo "referencia=rama develop ($(git rev-parse --short HEAD))" >> "$GITHUB_OUTPUT"
           fi
@@ -105,7 +105,7 @@ jobs:
           if [ -n "$EXISTE" ]; then gh issue comment "$EXISTE" --body-file drift/cuerpo.md
           else gh issue create --title "$TITULO" --label drift --body-file drift/cuerpo.md; fi
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         if: always() && steps.cfg.outputs.ok == 'true'
         with:
           name: drift-${{ matrix.ambiente }}

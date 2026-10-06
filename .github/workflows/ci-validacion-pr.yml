@@ -36,7 +36,7 @@ jobs:
     name: Convenciones del PR
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Validar título, rama y descripción
         env:
           TITULO: ${{ github.event.pull_request.title }}
@@ -49,7 +49,7 @@ jobs:
     name: Build y análisis de código
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - uses: ./.github/actions/preparar
@@ -59,7 +59,7 @@ jobs:
           set -o pipefail
           VERSION=$(python3 scripts/ci/version.py desarrollo ${{ github.run_number }})
           echo "Versión de build: $VERSION"
-          dotnet build "$PROYECTO" -c Release -p:DacVersion="$VERSION" 2>&1 | tee build.log
+          scripts/ci/build.sh "$VERSION" build.log
           mkdir -p artefactos/nuevo artefactos/base
           cp "$DACPAC_BUILD" artefactos/nuevo/
           cp build.log artefactos/
@@ -68,7 +68,7 @@ jobs:
         run: |
           git worktree add ../base "origin/${{ github.base_ref }}"
           if [ -f "../base/$PROYECTO" ]; then
-            (cd ../base && dotnet build "$PROYECTO" -c Release -nologo -v q)
+            scripts/ci/build.sh 0.0.0 build_base.log "../base/$PROYECTO"
             cp "../base/$DACPAC_BUILD" artefactos/base/
           else
             echo "::notice::La rama destino aún no tiene SQL Project: se compara contra un modelo vacío."
@@ -78,7 +78,7 @@ jobs:
         run: |
           git diff --name-only "origin/${{ github.base_ref }}...HEAD" | tee artefactos/archivos_modificados.txt
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: build
           path: artefactos/
@@ -106,9 +106,9 @@ jobs:
       SQL_PASSWORD: "Ci_Efimera#2026"
       BASE_CI: BI_CI
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/preparar
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           name: build
           path: artefactos
@@ -157,7 +157,7 @@ jobs:
       - name: Pruebas de humo
         run: python3 scripts/ci/db.py --base "$BASE_CI" smoke --probar-carga --salida resultados/smoke.json --no-fallar
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         if: always()
         with:
           name: pruebas
@@ -188,9 +188,9 @@ jobs:
       SQL_PASSWORD: ${{ secrets.SQL_PASSWORD }}
       DB_DESTINO: ${{ github.base_ref == 'main' && (vars.DB_PROD || 'BI_PROD') || (vars.DB_DEV || 'BI_DEV') }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/preparar
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           name: build
           path: artefactos
@@ -231,7 +231,7 @@ jobs:
           echo "Objetos: $OBJETOS"
           python3 scripts/ci/db.py --base "$DB_DESTINO" dependencias-jobs --objetos "$OBJETOS" --salida destino/jobs.json
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         if: always()
         with:
           name: destino
@@ -246,11 +246,11 @@ jobs:
     env:
       DB_DESTINO: ${{ github.base_ref == 'main' && (vars.DB_PROD || 'BI_PROD') || (vars.DB_DEV || 'BI_DEV') }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ./.github/actions/preparar
         with:
           dotnet: "false"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           path: entrada
 
@@ -289,13 +289,13 @@ jobs:
             --salida-md reporte/comentario.md --salida-html reporte/reporte_cambio.html
           cat reporte/comentario.md >> "$GITHUB_STEP_SUMMARY"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: reporte-cambio
           path: reporte/
 
       - name: Publicar comentario y etiquetas en el PR
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const fs = require('fs');

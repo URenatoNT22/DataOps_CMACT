@@ -60,7 +60,7 @@ jobs:
           fi
           echo "Autorizado: $GITHUB_ACTOR (TI)"
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - uses: ./.github/actions/preparar
@@ -92,7 +92,7 @@ jobs:
             --motivo "$MOTIVO" --url "$RUN_URL"
           python3 scripts/ci/db.py --base "$DB" smoke --probar-carga --salida evidencias/smoke.json
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         if: always()
         with:
           name: evidencias-rollback-${{ inputs.version_destino }}
