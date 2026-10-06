@@ -10,7 +10,7 @@ runs:
     - if: inputs.dotnet == 'true'
       uses: actions/setup-dotnet@v5
       with:
-        dotnet-version: 8.0.x
+        global-json-file: global.json
     - if: inputs.dotnet == 'true'
       name: Instalar SqlPackage
       shell: bash
