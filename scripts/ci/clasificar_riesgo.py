@@ -82,6 +82,8 @@ def clasificar(reglas, operaciones, alertas, script, archivos, proyecto):
         for regla in reglas.get("patrones_script_sensibles", []):
             for m in re.finditer(regla["pattern"], cuerpo, flags=re.I):
                 linea = cuerpo[max(0, cuerpo.rfind("\n", 0, m.start()) + 1): cuerpo.find("\n", m.end())].strip()
+                if "tmp_ms_xx" in linea:  # renombres internos de un TableRebuild (ya reportado como operación)
+                    continue
                 subir("SENSIBLE", f"{regla['motivo']}: `{linea[:160]}`")
 
     for archivo in archivos:

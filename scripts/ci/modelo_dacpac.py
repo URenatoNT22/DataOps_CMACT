@@ -101,7 +101,9 @@ def _elementos_rel(elem, relacion):
 
 
 def _tipo_dato(elem_col):
-    for ts in _elementos_rel(elem_col, "TypeSpecifier"):
+    especificadores = [e for e in _elementos_rel(elem_col, "TypeSpecifier") + _elementos_rel(elem_col, "Type")
+                       if e.get("Type") == "SqlTypeSpecifier"]
+    for ts in especificadores:
         tipo = (_referencias(ts, "Type") or ["?"])[0]
         tipo = _partes(tipo)[-1] if _partes(tipo) else tipo
         if _valor_propiedad(ts, "IsMax") == "True":
@@ -112,8 +114,8 @@ def _tipo_dato(elem_col):
             return f"{tipo.upper()}({largo})"
         if prec and tipo.lower() in ("decimal", "numeric"):
             return f"{tipo.upper()}({prec},{esc or 0})"
-        if esc and tipo.lower() in ("datetime2", "time", "datetimeoffset"):
-            return f"{tipo.upper()}({esc})"
+        if tipo.lower() in ("datetime2", "time", "datetimeoffset"):
+            return f"{tipo.upper()}({esc or 0})"
         return tipo.upper()
     return ""
 

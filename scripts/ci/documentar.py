@@ -165,7 +165,8 @@ def cmd_cambio(a):
     md_l = ["<!-- reporte-dataops -->", "## 🤖 Reporte automático del cambio", ""]
     md_l += ["| | |", "|---|---|",
              f"| **Riesgo** | {ICONO_RIESGO.get(nivel,'')} **{TEXTO_RIESGO.get(nivel, nivel)}** |",
-             f"| **Destino evaluado** | `{destino or 'n/d'}` {'(base real)' if evaluado else '(sin conexión al destino: evaluado contra base efímera de CI)'} |",
+             (f"| **Destino evaluado** | `{destino}` (base real) |" if evaluado else
+              f"| **Destino evaluado** | base efímera de CI · ⚠️ sin conexión a `{ctx.get('destino') or 'destino'}` (¿ngrok activo?) |"),
              f"| **Build y análisis de código** | ✅ compila · {len(avisos)} advertencia(s) de análisis |",
              f"| **Pruebas** | {'✅' if mal == 0 else '❌'} {ok}/{total} OK" + (f" · ⚠️ {adv} advertencia(s)" if adv else "") + (f" · ❌ {mal} falla(s)" if mal else "") + " |",
              f"| **Prueba de actualización con datos** | {upgrade.get('texto','n/d')} |",
@@ -216,7 +217,10 @@ def cmd_cambio(a):
         md_l += [f"- `{x['regla']}` {x['archivo']}:{x['linea']} — {x['mensaje']}" for x in avisos[:40]]
         md_l.append("\n</details>\n")
     if script:
-        recorte = script if len(script) < 25000 else script[:25000] + "\n-- ... (recortado, ver reporte HTML)"
+        # se omite el preámbulo SQLCMD que genera SqlPackage: se muestra desde el USE de la base
+        m_use = re.search(r"^USE \[\$\(DatabaseName\)\];\s*$", script, flags=re.M)
+        cuerpo_script = script[m_use.end():].strip() if m_use else script
+        recorte = cuerpo_script if len(cuerpo_script) < 25000 else cuerpo_script[:25000] + "\n-- ... (recortado, ver reporte HTML)"
         md_l += ["<details><summary>Script SQL que se ejecutará en el destino</summary>", "", "```sql", recorte, "```", "</details>", ""]
     md_l.append("### Siguiente paso")
     base_ref = ctx.get("base", "")

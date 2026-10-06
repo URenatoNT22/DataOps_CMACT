@@ -49,7 +49,7 @@ Ejemplos:
 | Procedimientos de carga: `usp_CARGA_<TABLON>`, idempotentes por fecha de corte, registran en `ctl.BITACORA_CARGA` | `tab.usp_CARGA_TB_CREDITO` |
 | Columnas en MAYÚSCULAS_CON_GUION_BAJO | `SALDO_CAPITAL` |
 | Toda tabla, vista, SP y columna lleva `MS_Description`: alimenta el diccionario de datos | `sp_addextendedproperty` al final del archivo |
-| Columnas nuevas en tablas con datos: `NULL` o con `DEFAULT` | Evita cambios SENSIBLES innecesarios |
+| Columnas nuevas en tablas con datos: **al final** de la tabla y `NULL` (o con `DEFAULT`) | Una columna en medio obliga a reconstruir la tabla (TableRebuild = SENSIBLE) |
 | Nada de permisos, usuarios ni roles en el proyecto | Es PROHIBIDO: lo gestiona TI |
 | Cambios de estructura (renombrar, cambiar tipo) | Usar el refactor del proyecto; se clasifican como SENSIBLES |
 
