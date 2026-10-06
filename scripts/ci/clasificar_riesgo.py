@@ -154,4 +154,11 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except Exception:
+        import traceback
+        tb = traceback.format_exc()
+        print(tb, file=sys.stderr)
+        print("::error title=Clasificación de riesgo::" + tb.replace("%", "%25").replace("\n", "%0A")[-3000:])
+        sys.exit(1)

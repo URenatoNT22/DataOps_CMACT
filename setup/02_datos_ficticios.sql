@@ -201,9 +201,10 @@ CROSS APPLY
            END AS [FECHA_PAGO]
 ) AS [pg];
 
-PRINT CONCAT(N'Clientes: ', (SELECT COUNT(*) FROM [src].[CLIENTE]),
-             N' | Créditos: ', (SELECT COUNT(*) FROM [src].[CREDITO]),
-             N' | Cuotas: ', (SELECT COUNT(*) FROM [src].[CUOTA]));
+DECLARE @C1 INT = (SELECT COUNT(*) FROM [src].[CLIENTE]),
+        @C2 INT = (SELECT COUNT(*) FROM [src].[CREDITO]),
+        @C3 INT = (SELECT COUNT(*) FROM [src].[CUOTA]);
+PRINT CONCAT(N'Clientes: ', @C1, N' | Créditos: ', @C2, N' | Cuotas: ', @C3);
 
 /* ---------- Carga de tablones para los últimos @MESES fines de mes ---------- */
 DECLARE @i INT = @MESES, @F DATE;

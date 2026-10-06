@@ -446,4 +446,11 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        import traceback
+        tb = traceback.format_exc()
+        print(tb, file=sys.stderr)
+        print("::error title=Documentación automática::" + tb.replace("%", "%25").replace("\n", "%0A")[-3000:])
+        sys.exit(1)
