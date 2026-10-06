@@ -304,7 +304,14 @@ def main():
     s = sub.add_parser("version-instalada"); s.set_defaults(f=cmd_version)
 
     args = p.parse_args()
-    args.f(args)
+    try:
+        args.f(args)
+    except SystemExit:
+        raise
+    except Exception as exc:  # error visible como anotación en GitHub Actions
+        texto = str(exc).replace("%", "%25").replace("\r", "").replace("\n", "%0A")
+        print(f"::error title=SQL ({args.cmd})::{texto[:3000]}")
+        raise
 
 
 if __name__ == "__main__":
