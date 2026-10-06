@@ -14,7 +14,6 @@ CREATE TABLE [tab].[TB_CREDITO]
     [ID_AGENCIA] SMALLINT NOT NULL,
     [NOMBRE_AGENCIA] VARCHAR(80) NOT NULL,
     [REGION] VARCHAR(50) NOT NULL,
-    [ZONA] VARCHAR(50) NOT NULL,
     [ANALISTA] VARCHAR(80) NOT NULL,
     [ID_PRODUCTO] SMALLINT NOT NULL,
     [NOMBRE_PRODUCTO] VARCHAR(80) NOT NULL,
@@ -91,10 +90,6 @@ GO
 EXEC sys.sp_addextendedproperty @name = N'MS_Description', @value = N'Región de la agencia.',
     @level0type = N'SCHEMA', @level0name = N'tab', @level1type = N'TABLE', @level1name = N'TB_CREDITO',
     @level2type = N'COLUMN', @level2name = N'REGION';
-GO
-EXEC sys.sp_addextendedproperty @name = N'MS_Description', @value = N'Zona comercial de la agencia.',
-    @level0type = N'SCHEMA', @level0name = N'tab', @level1type = N'TABLE', @level1name = N'TB_CREDITO',
-    @level2type = N'COLUMN', @level2name = N'ZONA';
 GO
 EXEC sys.sp_addextendedproperty @name = N'MS_Description', @value = N'Analista de créditos responsable.',
     @level0type = N'SCHEMA', @level0name = N'tab', @level1type = N'TABLE', @level1name = N'TB_CREDITO',
