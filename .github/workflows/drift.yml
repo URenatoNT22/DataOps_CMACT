@@ -1,0 +1,113 @@
+# =====================================================================================
+#  CONTROL DE DRIFT
+#  Todas las noches compara lo que DEBERÍA estar instalado (repositorio) con lo que REALMENTE
+#  está en cada base. Si alguien hizo un cambio manual fuera del pipeline, abre un issue.
+#    PROD: se compara contra el DACPAC del último release
+#    DEV : se compara contra la rama develop
+# =====================================================================================
+name: Control de drift
+
+on:
+  schedule:
+    - cron: "0 6 * * *"   # 01:00 hora Lima
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  drift:
+    name: Drift en ${{ matrix.ambiente }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - ambiente: PROD
+            rama: main
+          - ambiente: DEV
+            rama: develop
+    env:
+      SQL_SERVER: ${{ secrets.SQL_SERVER }}
+      SQL_USER: ${{ secrets.SQL_USER }}
+      SQL_PASSWORD: ${{ secrets.SQL_PASSWORD }}
+      DB: ${{ matrix.ambiente == 'PROD' && (vars.DB_PROD || 'BI_PROD') || (vars.DB_DEV || 'BI_DEV') }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Verificar configuración
+        id: cfg
+        run: |
+          if [ -z "$SQL_SERVER" ]; then echo "::notice::Secretos no configurados"; echo "ok=false" >> "$GITHUB_OUTPUT"; else echo "ok=true" >> "$GITHUB_OUTPUT"; fi
+      - uses: actions/checkout@v4
+        if: steps.cfg.outputs.ok == 'true'
+        with:
+          ref: ${{ matrix.rama }}
+          fetch-depth: 0
+      - uses: ./.github/actions/preparar
+        if: steps.cfg.outputs.ok == 'true'
+
+      - name: Obtener el estado esperado
+        if: steps.cfg.outputs.ok == 'true'
+        id: esperado
+        run: |
+          mkdir -p drift
+          if [ "${{ matrix.ambiente }}" = "PROD" ]; then
+            TAG=$(gh release list --limit 1 --json tagName --jq '.[0].tagName')
+            if [ -z "$TAG" ]; then echo "::notice::Aún no hay releases en PROD"; echo "ok=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+            gh release download "$TAG" --pattern "BI_Analitico-$TAG.dacpac" --dir drift
+            mv "drift/BI_Analitico-$TAG.dacpac" drift/esperado.dacpac
+            echo "referencia=release $TAG" >> "$GITHUB_OUTPUT"
+          else
+            dotnet build database/BI_Analitico/BI_Analitico.sqlproj -c Release -nologo -v q
+            cp database/BI_Analitico/bin/Release/BI_Analitico.dacpac drift/esperado.dacpac
+            echo "referencia=rama develop ($(git rev-parse --short HEAD))" >> "$GITHUB_OUTPUT"
+          fi
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+
+      - name: Comparar contra ${{ env.DB }}
+        if: steps.cfg.outputs.ok == 'true' && steps.esperado.outputs.ok == 'true'
+        id: comparar
+        run: |
+          scripts/ci/sqlpkg.sh reporte drift/esperado.dacpac "$DB" drift/drift_report.xml
+          scripts/ci/sqlpkg.sh script  drift/esperado.dacpac "$DB" drift/drift_script.sql
+          python3 scripts/ci/clasificar_riesgo.py --deploy-report drift/drift_report.xml --proyecto none \
+            --destino "$DB" --salida drift/drift.json
+          N=$(python3 -c "import json;d=json.load(open('drift/drift.json'));print(sum(d['resumen_operaciones'].values()))")
+          echo "diferencias=$N" >> "$GITHUB_OUTPUT"
+
+      - name: Abrir, actualizar o cerrar issue de drift
+        if: steps.comparar.outcome == 'success'
+        env:
+          N: ${{ steps.comparar.outputs.diferencias }}
+          REF: ${{ steps.esperado.outputs.referencia }}
+        run: |
+          TITULO="🧭 Drift detectado en ${{ matrix.ambiente }} ($DB)"
+          EXISTE=$(gh issue list --state open --label drift --search "in:title \"$TITULO\"" --json number --jq '.[0].number')
+          if [ "$N" = "0" ]; then
+            echo "Sin drift en $DB"
+            [ -n "$EXISTE" ] && gh issue close "$EXISTE" --comment "✅ $(date -u '+%Y-%m-%d'): $DB vuelve a coincidir con $REF."
+            exit 0
+          fi
+          python3 - > drift/cuerpo.md <<'EOF'
+          import json, os
+          d = json.load(open("drift/drift.json"))
+          print(f"La base **{os.environ['DB']}** no coincide con **{os.environ['REF']}**. Alguien cambió objetos fuera del pipeline,")
+          print("o un rollback dejó el repositorio desalineado.\n")
+          print("| Operación necesaria para volver al estado esperado | Objeto | Tipo |\n|---|---|---|")
+          for op, items in d["operaciones"].items():
+              for i in items:
+                  print(f"| {op} | `{i['objeto']}` | {i['tipo']} |")
+          print("\n**Acción:** TI identifica el origen del cambio manual. Si el cambio es válido, IN lo incorpora al repositorio por PR;")
+          print("si no, se vuelve a desplegar la versión aprobada (workflow Despliegue / Rollback).")
+          print(f"\nEjecución: {os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}")
+          EOF
+          if [ -n "$EXISTE" ]; then gh issue comment "$EXISTE" --body-file drift/cuerpo.md
+          else gh issue create --title "$TITULO" --label drift --body-file drift/cuerpo.md; fi
+
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.cfg.outputs.ok == 'true'
+        with:
+          name: drift-${{ matrix.ambiente }}
+          path: drift/
+          if-no-files-found: ignore

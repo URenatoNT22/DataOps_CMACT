@@ -1,0 +1,25 @@
+name: Preparar herramientas
+description: Instala .NET SDK (build del SQL Project), SqlPackage y las librerías Python del pipeline.
+inputs:
+  dotnet:
+    description: Instalar .NET y SqlPackage
+    default: "true"
+runs:
+  using: composite
+  steps:
+    - if: inputs.dotnet == 'true'
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 8.0.x
+    - if: inputs.dotnet == 'true'
+      name: Instalar SqlPackage
+      shell: bash
+      run: |
+        dotnet tool install --global microsoft.sqlpackage >/dev/null
+        echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - name: Librerías Python
+      shell: bash
+      run: pip install --quiet pymssql pyyaml

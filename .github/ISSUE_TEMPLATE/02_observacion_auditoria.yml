@@ -1,0 +1,26 @@
+name: Observación de auditoría (TI)
+description: Observación de TI sobre un cambio ya desplegado en producción
+title: "[Observación] "
+labels: ["auditoria/observado"]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Versión / release observado
+      placeholder: v1.3.0
+    validations:
+      required: true
+  - type: textarea
+    id: observacion
+    attributes:
+      label: Observación
+      description: Qué incumple o qué riesgo se identificó
+    validations:
+      required: true
+  - type: dropdown
+    id: severidad
+    attributes:
+      label: Severidad
+      options: [Baja - corregir en el siguiente release, Media - corregir dentro del plazo, Alta - evaluar rollback inmediato]
+    validations:
+      required: true

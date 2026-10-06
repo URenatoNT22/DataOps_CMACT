@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Perfil de publicación único para TODOS los ambientes (DEV y PROD).
+  El destino (servidor/base/credenciales) lo inyecta el pipeline: el artefacto y las reglas
+  son los mismos en todos lados, solo cambia a dónde apunta.
+  Dueño: TI / DBA (ver .github/CODEOWNERS). Cambiar este archivo es un cambio SENSIBLE.
+-->
+<Project ToolsVersion="Current">
+  <PropertyGroup>
+    <!-- Seguridad: nunca perder datos sin autorización explícita (el pipeline solo lo relaja
+         si TI agregó la etiqueta ti/autoriza-perdida-datos en el Pull Request). -->
+    <BlockOnPossibleDataLoss>True</BlockOnPossibleDataLoss>
+
+    <!-- La seguridad la gestiona TI: el pipeline no crea, borra ni modifica usuarios, roles ni permisos. -->
+    <ExcludeObjectTypes>Users;Logins;RoleMembership;Permissions;ApplicationRoles;DatabaseRoles;ServerRoles;ServerRoleMembership;Credentials;DatabaseScopedCredentials;LinkedServers;LinkedServerLogins</ExcludeObjectTypes>
+    <IgnorePermissions>True</IgnorePermissions>
+    <IgnoreRoleMembership>True</IgnoreRoleMembership>
+    <IgnoreLoginSids>True</IgnoreLoginSids>
+    <DropPermissionsNotInSource>False</DropPermissionsNotInSource>
+    <DropRoleMembersNotInSource>False</DropRoleMembersNotInSource>
+
+    <!-- El repositorio es la fuente de verdad de los objetos de BI: lo que se elimina del repo se elimina
+         de la base (siempre clasificado como SENSIBLE). Nunca se eliminan objetos de seguridad. -->
+    <DropObjectsNotInSource>True</DropObjectsNotInSource>
+    <DoNotDropObjectTypes>Users;Logins;RoleMembership;Permissions;ApplicationRoles;DatabaseRoles;ServerRoles;ServerRoleMembership;Credentials;DatabaseScopedCredentials;LinkedServers;LinkedServerLogins</DoNotDropObjectTypes>
+
+    <!-- Comportamiento del despliegue -->
+    <IncludeTransactionalScripts>True</IncludeTransactionalScripts>
+    <GenerateSmartDefaults>False</GenerateSmartDefaults>
+    <ScriptDatabaseOptions>False</ScriptDatabaseOptions>
+    <CreateNewDatabase>False</CreateNewDatabase>
+    <AllowIncompatiblePlatform>False</AllowIncompatiblePlatform>
+    <VerifyDeployment>True</VerifyDeployment>
+    <IgnoreColumnOrder>True</IgnoreColumnOrder>
+    <CommentOutSetVarDeclarations>False</CommentOutSetVarDeclarations>
+  </PropertyGroup>
+</Project>

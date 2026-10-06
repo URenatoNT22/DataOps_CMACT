@@ -1,0 +1,115 @@
+# =====================================================================================
+#  ROLLBACK CONTROLADO (solo TI)
+#  Vuelve a desplegar en PROD el DACPAC de una versión ya aprobada (release anterior),
+#  por el mismo pipeline y con la misma cuenta de servicio. Nunca se ejecutan scripts a mano.
+#  - Solo usuarios en la variable ROL_TI pueden ejecutarlo.
+#  - Se mantiene BlockOnPossibleDataLoss: si volver atrás implica perder datos, se detiene
+#    y TI decide (se documenta en el issue).
+# =====================================================================================
+name: Rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_destino:
+        description: "Versión a la que se vuelve (tag de un release, ej. v1.2.0)"
+        required: true
+      motivo:
+        description: "Motivo del rollback"
+        required: true
+      issue:
+        description: "Número del issue de auditoría o incidente relacionado"
+        required: false
+      confirmar:
+        description: 'Escriba ROLLBACK para confirmar'
+        required: true
+
+concurrency:
+  group: despliegue-main
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  rollback:
+    name: Rollback de PROD a ${{ inputs.version_destino }}
+    runs-on: ubuntu-latest
+    environment:
+      name: produccion
+    env:
+      SQL_SERVER: ${{ secrets.SQL_SERVER }}
+      SQL_USER: ${{ secrets.SQL_USER }}
+      SQL_PASSWORD: ${{ secrets.SQL_PASSWORD }}
+      DB: ${{ vars.DB_PROD || 'BI_PROD' }}
+      GH_TOKEN: ${{ github.token }}
+      V: ${{ inputs.version_destino }}
+      MOTIVO: ${{ inputs.motivo }}
+      ISSUE: ${{ inputs.issue }}
+      CONFIRMAR: ${{ inputs.confirmar }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Autorización
+        env:
+          ROL_TI: ${{ vars.ROL_TI }}
+        run: |
+          if [ "$CONFIRMAR" != "ROLLBACK" ]; then echo "::error::Debe escribir ROLLBACK para confirmar."; exit 1; fi
+          if ! echo ",$(echo "$ROL_TI" | tr -d ' ' | tr 'A-Z' 'a-z')," | grep -q ",$(echo "$GITHUB_ACTOR" | tr 'A-Z' 'a-z'),"; then
+            echo "::error title=No autorizado::$GITHUB_ACTOR no pertenece a ROL_TI. Solo TI puede ejecutar un rollback."; exit 1
+          fi
+          echo "Autorizado: $GITHUB_ACTOR (TI)"
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/preparar
+
+      - name: Descargar DACPAC aprobado de ${{ inputs.version_destino }}
+        run: |
+          mkdir -p evidencias
+          gh release download "$V" --pattern "BI_Analitico-$V.dacpac" --dir evidencias
+          INSTALADA=$(python3 scripts/ci/db.py --base "$DB" version-instalada)
+          echo "Versión instalada actualmente: $INSTALADA"
+          echo "$INSTALADA" > evidencias/version_previa.json
+
+      - name: Foto previa y plan de rollback
+        run: |
+          scripts/ci/sqlpkg.sh extraer "$DB" "evidencias/estado_previo_${DB}.dacpac"
+          scripts/ci/sqlpkg.sh reporte "evidencias/BI_Analitico-$V.dacpac" "$DB" evidencias/rollback_report.xml
+          scripts/ci/sqlpkg.sh script  "evidencias/BI_Analitico-$V.dacpac" "$DB" evidencias/rollback_script.sql
+          python3 scripts/ci/clasificar_riesgo.py --deploy-report evidencias/rollback_report.xml \
+            --script evidencias/rollback_script.sql --proyecto none --destino "$DB" --salida evidencias/rollback_riesgo.json
+
+      - name: Ejecutar rollback
+        run: |
+          scripts/ci/sqlpkg.sh publicar "evidencias/BI_Analitico-$V.dacpac" "$DB" /p:BlockOnPossibleDataLoss=True 2>&1 | tee evidencias/rollback.log
+
+      - name: Registrar y validar
+        run: |
+          python3 scripts/ci/db.py --base "$DB" registrar-despliegue --version "$V" --tipo ROLLBACK \
+            --commit "$(git rev-list -n 1 "$V" 2>/dev/null || git rev-parse HEAD)" --rama main --ejecutado-por "$GITHUB_ACTOR" \
+            --motivo "$MOTIVO" --url "$RUN_URL"
+          python3 scripts/ci/db.py --base "$DB" smoke --probar-carga --salida evidencias/smoke.json
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: evidencias-rollback-${{ inputs.version_destino }}
+          path: evidencias/
+
+      - name: Notificar
+        if: always()
+        run: |
+          ESTADO="${{ job.status }}"
+          CUERPO="$( [ "$ESTADO" = success ] && echo '↩️ **Rollback ejecutado**' || echo '❌ **Rollback fallido**' ) en \`$DB\` hacia **$V**
+          - Ejecutado por: @$GITHUB_ACTOR (TI)
+          - Motivo: $MOTIVO
+          - Evidencias: $RUN_URL
+
+          **Pendiente para Inteligencia de Negocios:** revertir el cambio en \`main\` con un PR (\`revert: ...\`) para que el repositorio vuelva a coincidir con PROD (si no, el control de drift lo reportará)."
+          if [ -n "$ISSUE" ]; then
+            gh issue comment "$ISSUE" --body "$CUERPO"
+          else
+            gh issue create --title "↩️ Rollback de PROD a $V" --label incidente --body "$CUERPO"
+          fi

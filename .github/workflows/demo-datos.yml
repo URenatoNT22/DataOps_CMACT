@@ -1,0 +1,40 @@
+# =====================================================================================
+#  DATOS DE DEMO
+#  Carga datos FICTICIOS (setup/02_datos_ficticios.sql) en BI_DEV o BI_PROD.
+#  Solo para la demo: en un ambiente real los datos llegan por los procesos ETL.
+# =====================================================================================
+name: Datos de demo
+
+on:
+  workflow_dispatch:
+    inputs:
+      ambiente:
+        description: Base a poblar
+        type: choice
+        options: [BI_DEV, BI_PROD, ambas]
+        default: ambas
+
+permissions:
+  contents: read
+
+jobs:
+  poblar:
+    name: Datos ficticios en ${{ matrix.base }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        base: ${{ inputs.ambiente == 'ambas' && fromJSON('["BI_DEV","BI_PROD"]') || fromJSON(format('["{0}"]', inputs.ambiente)) }}
+    env:
+      SQL_SERVER: ${{ secrets.SQL_SERVER }}
+      SQL_USER: ${{ secrets.SQL_USER }}
+      SQL_PASSWORD: ${{ secrets.SQL_PASSWORD }}
+      DB: ${{ matrix.base == 'BI_PROD' && (vars.DB_PROD || 'BI_PROD') || (vars.DB_DEV || 'BI_DEV') }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/preparar
+        with:
+          dotnet: "false"
+      - name: Generar datos ficticios y cargar tablones
+        run: python3 scripts/ci/db.py --base "$DB" script --archivo setup/02_datos_ficticios.sql
+      - name: Pruebas de datos
+        run: python3 scripts/ci/db.py --base "$DB" pruebas --carpeta tests/datos

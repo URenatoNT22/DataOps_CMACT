@@ -1,0 +1,16 @@
+# =====================================================================================
+#  CODEOWNERS: a quién se le solicita revisión automáticamente según lo que cambie el PR.
+#  Las reglas de aprobación por rol y riesgo las aplica el workflow "Gate de aprobaciones".
+#  Cuando exista la cuenta de TI, agregarla en las rutas de gobierno (ej. @usuario-ti).
+# =====================================================================================
+
+# Por defecto: Jefe IN / Data Engineering
+*                               @URenatoNT22
+
+# Código SQL del ambiente analítico
+/database/                      @URenatoNT22
+
+# Gobierno del proceso (pipelines, reglas de riesgo, perfil de despliegue): IN + TI
+/.github/                       @URenatoNT22
+/deployment/                    @URenatoNT22
+/scripts/ci/                    @URenatoNT22

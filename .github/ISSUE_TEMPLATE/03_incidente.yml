@@ -1,0 +1,19 @@
+name: Incidente en producción
+description: Un proceso, reporte o dato falla después de un despliegue
+title: "[Incidente] "
+labels: ["incidente"]
+body:
+  - type: textarea
+    id: sintoma
+    attributes:
+      label: Qué está fallando
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Versión en PROD cuando se detectó (si se conoce)
+  - type: textarea
+    id: impacto
+    attributes:
+      label: Impacto (reportes, jobs, usuarios afectados)

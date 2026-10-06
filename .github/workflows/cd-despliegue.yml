@@ -1,0 +1,293 @@
+# =====================================================================================
+#  DESPLIEGUE CONTINUO
+#  develop -> BI_DEV        main -> BI_PROD (+ release versionado + auditoría de TI + diccionario)
+#
+#  Lo ejecuta SIEMPRE el pipeline con la cuenta de servicio: ninguna persona despliega a mano.
+#  Pasos: build -> foto previa del destino -> recálculo de riesgo -> deploy -> registro ->
+#         validación post-deploy -> release / auditoría (PROD) o incidente (si falla)
+# =====================================================================================
+name: Despliegue
+
+on:
+  push:
+    branches: [develop, main]
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
+  workflow_dispatch:
+
+concurrency:
+  group: despliegue-${{ github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+env:
+  PROYECTO: database/BI_Analitico/BI_Analitico.sqlproj
+  DACPAC_BUILD: database/BI_Analitico/bin/Release/BI_Analitico.dacpac
+  DOTNET_NOLOGO: "true"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+
+jobs:
+  configuracion:
+    name: Verificar configuración
+    runs-on: ubuntu-latest
+    outputs:
+      listo: ${{ steps.v.outputs.listo }}
+    steps:
+      - id: v
+        env:
+          SQL_SERVER: ${{ secrets.SQL_SERVER }}
+        run: |
+          if [ -z "$SQL_SERVER" ]; then
+            echo "::notice title=Despliegue omitido::Configure los secretos SQL_SERVER, SQL_USER y SQL_PASSWORD (docs/03_INSTALACION.md) y ejecute este workflow manualmente."
+            echo "listo=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "listo=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  desplegar:
+    name: Desplegar a ${{ github.ref_name == 'main' && 'PROD' || 'DEV' }}
+    needs: configuracion
+    if: needs.configuracion.outputs.listo == 'true' && (github.ref_name == 'main' || github.ref_name == 'develop')
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ github.ref_name == 'main' && 'produccion' || 'desarrollo' }}
+    env:
+      SQL_SERVER: ${{ secrets.SQL_SERVER }}
+      SQL_USER: ${{ secrets.SQL_USER }}
+      SQL_PASSWORD: ${{ secrets.SQL_PASSWORD }}
+      DB: ${{ github.ref_name == 'main' && (vars.DB_PROD || 'BI_PROD') || (vars.DB_DEV || 'BI_DEV') }}
+      ES_PROD: ${{ github.ref_name == 'main' }}
+      GH_TOKEN: ${{ github.token }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/preparar
+
+      - name: Versión
+        id: version
+        run: |
+          if [ "$ES_PROD" = "true" ]; then V=$(python3 scripts/ci/version.py siguiente); else V=$(python3 scripts/ci/version.py desarrollo ${{ github.run_number }}); fi
+          ANT=$(python3 scripts/ci/version.py anterior)
+          echo "version=$V" >> "$GITHUB_OUTPUT"; echo "anterior=$ANT" >> "$GITHUB_OUTPUT"
+          echo "Versión a desplegar en $DB: $V (anterior: ${ANT:-ninguna})"
+
+      - name: Build del DACPAC ${{ steps.version.outputs.version }}
+        run: |
+          V="${{ steps.version.outputs.version }}"
+          dotnet build "$PROYECTO" -c Release -p:DacVersion="${V#v}"
+          mkdir -p evidencias && cp "$DACPAC_BUILD" "evidencias/BI_Analitico-${V}.dacpac"
+
+      - name: Pull Request de origen, aprobaciones y autorizaciones
+        id: pr
+        uses: actions/github-script@v7
+        env:
+          ROL_TI: ${{ vars.ROL_TI }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const TI = (process.env.ROL_TI || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+            let pr = null;
+            try {
+              const r = await github.rest.repos.listPullRequestsAssociatedWithCommit({ owner, repo, commit_sha: context.sha });
+              pr = r.data.find(p => p.merged_at) || null;
+            } catch (e) { core.warning(e.message); }
+            const salida = { numero: '', titulo: '', autor: '', riesgo: '', aprobadores: '', aprobado_ti: 'false', autoriza_perdida: 'false' };
+            if (pr) {
+              const etiquetas = pr.labels.map(l => l.name);
+              salida.numero = String(pr.number); salida.titulo = pr.title; salida.autor = pr.user.login;
+              salida.riesgo = etiquetas.includes('riesgo/prohibido') ? 'PROHIBIDO' : etiquetas.includes('riesgo/sensible') ? 'SENSIBLE'
+                            : etiquetas.includes('riesgo/estandar') ? 'ESTANDAR' : '';
+              const revs = await github.paginate(github.rest.pulls.listReviews, { owner, repo, pull_number: pr.number });
+              const ap = [...new Set(revs.filter(r => r.state === 'APPROVED').map(r => r.user.login))];
+              salida.aprobadores = ap.join(', ');
+              salida.aprobado_ti = String(ap.some(u => TI.includes(u.toLowerCase())));
+              if (etiquetas.includes('ti/autoriza-perdida-datos')) {
+                const ev = await github.paginate(github.rest.issues.listEvents, { owner, repo, issue_number: pr.number });
+                const quien = ev.filter(x => x.event === 'labeled' && x.label && x.label.name === 'ti/autoriza-perdida-datos')
+                                .map(x => x.actor.login.toLowerCase());
+                salida.autoriza_perdida = String(quien.some(u => TI.includes(u)));
+                if (salida.autoriza_perdida !== 'true') core.warning('La etiqueta ti/autoriza-perdida-datos no fue puesta por un usuario de ROL_TI: se ignora.');
+              }
+            } else {
+              core.warning('Commit sin Pull Request asociado (ejecución manual o push directo).');
+            }
+            for (const [k, v] of Object.entries(salida)) core.setOutput(k, v);
+            core.info(JSON.stringify(salida));
+
+      - name: Foto del estado previo de ${{ env.DB }} (para rollback y auditoría)
+        run: scripts/ci/sqlpkg.sh extraer "$DB" "evidencias/estado_previo_${DB}.dacpac"
+
+      - name: Plan de despliegue y recálculo de riesgo contra ${{ env.DB }}
+        id: riesgo
+        run: |
+          D="evidencias/BI_Analitico-${{ steps.version.outputs.version }}.dacpac"
+          scripts/ci/sqlpkg.sh reporte "$D" "$DB" evidencias/deploy_report.xml
+          scripts/ci/sqlpkg.sh script  "$D" "$DB" evidencias/deploy_script.sql
+          python3 scripts/ci/clasificar_riesgo.py --deploy-report evidencias/deploy_report.xml \
+            --script evidencias/deploy_script.sql --proyecto database --destino "$DB" --salida evidencias/riesgo.json
+          NIVEL=$(python3 -c "import json;print(json.load(open('evidencias/riesgo.json'))['nivel'])")
+          echo "nivel=$NIVEL" >> "$GITHUB_OUTPUT"
+
+          if [ "$NIVEL" = "PROHIBIDO" ] || [ "${{ steps.pr.outputs.riesgo }}" = "PROHIBIDO" ]; then
+            echo "::error title=Riesgo PROHIBIDO::El cambio no puede desplegarse por el pipeline."; exit 1
+          fi
+          if [ "$ES_PROD" = "true" ] && [ "$NIVEL" = "SENSIBLE" ] && [ "${{ steps.pr.outputs.aprobado_ti }}" != "true" ]; then
+            echo "::error title=Falta visto de TI::Al desplegar, el cambio resultó SENSIBLE contra PROD y el PR no tiene aprobación de TI. No se despliega."
+            exit 1
+          fi
+
+      - name: Desplegar ${{ steps.version.outputs.version }} en ${{ env.DB }}
+        run: |
+          BLOQUEAR=True
+          if [ "${{ steps.pr.outputs.autoriza_perdida }}" = "true" ]; then
+            BLOQUEAR=False; echo "::warning title=Pérdida de datos autorizada::TI autorizó la posible pérdida de datos en el PR #${{ steps.pr.outputs.numero }}"
+          fi
+          scripts/ci/sqlpkg.sh publicar "evidencias/BI_Analitico-${{ steps.version.outputs.version }}.dacpac" "$DB" \
+            /p:BlockOnPossibleDataLoss=$BLOQUEAR 2>&1 | tee evidencias/despliegue.log
+          test "${PIPESTATUS[0]}" -eq 0
+
+      - name: Registrar despliegue en ctl.HISTORIAL_DESPLIEGUE
+        run: |
+          python3 scripts/ci/db.py --base "$DB" registrar-despliegue \
+            --version "${{ steps.version.outputs.version }}" --tipo DESPLIEGUE --commit "$GITHUB_SHA" --rama "$GITHUB_REF_NAME" \
+            --pr "${{ steps.pr.outputs.numero }}" --riesgo "${{ steps.riesgo.outputs.nivel }}" --ejecutado-por "$GITHUB_ACTOR" \
+            --aprobado-por "${{ steps.pr.outputs.aprobadores }}" --url "$RUN_URL"
+
+      - name: Validación post-deploy
+        run: |
+          python3 scripts/ci/db.py --base "$DB" smoke --probar-carga --salida evidencias/smoke.json
+          N=$(python3 scripts/ci/db.py --base "$DB" consulta --json --sql "SELECT COUNT(*) AS n FROM tab.TB_CREDITO" | python3 -c "import json,sys;print(json.load(sys.stdin)[0]['n'])")
+          if [ "$N" = "0" ]; then
+            echo "::notice::$DB sin datos: se omiten las pruebas de datos. Ejecute el workflow 'Datos de demo'."
+          else
+            python3 scripts/ci/db.py --base "$DB" pruebas --carpeta tests/datos --salida evidencias/pruebas.json
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: evidencias-${{ env.DB }}-${{ steps.version.outputs.version }}
+          path: evidencias/
+          retention-days: 90
+
+      - name: Release ${{ steps.version.outputs.version }}
+        if: env.ES_PROD == 'true'
+        env:
+          PR_TITULO: ${{ steps.pr.outputs.titulo }}
+          PR_AUTOR: ${{ steps.pr.outputs.autor }}
+          PR_APROBADORES: ${{ steps.pr.outputs.aprobadores }}
+        run: |
+          V="${{ steps.version.outputs.version }}"; ANT="${{ steps.version.outputs.anterior }}"
+          RES=$(python3 -c "import json;d=json.load(open('evidencias/riesgo.json'));print(' · '.join(f'{k}: {v}' for k,v in sorted(d['resumen_operaciones'].items())) or 'sin cambios de esquema')")
+          PR="${{ steps.pr.outputs.numero }}"
+          {
+            echo "## Release $V en producción"
+            echo
+            echo "| | |"; echo "|---|---|"
+            echo "| **Pull Request** | ${PR:+#$PR} $PR_TITULO |"
+            echo "| **Autor** | $PR_AUTOR |"
+            echo "| **Aprobado por** | $PR_APROBADORES |"
+            echo "| **Riesgo** | ${{ steps.riesgo.outputs.nivel }} |"
+            echo "| **Cambios aplicados** | $RES |"
+            echo "| **Versión anterior (rollback)** | ${ANT:-ninguna} |"
+            echo "| **Ejecución** | $RUN_URL |"
+            echo
+            echo "Adjuntos: DACPAC desplegado, script ejecutado, deploy report, foto previa de la base y resultados de validación."
+            echo
+            echo "**Auditoría de TI:** pendiente"
+          } > evidencias/notas_release.md
+          gh release create "$V" --target "$GITHUB_SHA" --title "$V · ${PR_TITULO:-despliegue manual}" \
+            --notes-file evidencias/notas_release.md \
+            "evidencias/BI_Analitico-$V.dacpac" evidencias/deploy_script.sql evidencias/deploy_report.xml \
+            "evidencias/estado_previo_${DB}.dacpac" evidencias/smoke.json $( [ -f evidencias/pruebas.json ] && echo evidencias/pruebas.json )
+
+      - name: Abrir auditoría posterior de TI
+        if: env.ES_PROD == 'true'
+        env:
+          ROL_TI: ${{ vars.ROL_TI }}
+          HORAS: ${{ vars.SLA_AUDITORIA_HORAS || '48' }}
+        run: |
+          V="${{ steps.version.outputs.version }}"; PR="${{ steps.pr.outputs.numero }}"
+          LIMITE=$(TZ=America/Lima date -d "+${HORAS} hours" '+%Y-%m-%d %H:%M')
+          cat > evidencias/auditoria.md <<EOF
+          **Release:** [$V](${{ github.server_url }}/${{ github.repository }}/releases/tag/$V) · **PR:** ${PR:+#$PR} · **Riesgo:** ${{ steps.riesgo.outputs.nivel }}
+          **Desplegado por:** pipeline (cuenta de servicio) · **Aprobado por:** ${{ steps.pr.outputs.aprobadores }}
+          **Plazo de auditoría:** $LIMITE (hora Lima, ${HORAS} h)
+
+          ### Para TI / DBA
+          - [ ] Revisar el PR, el reporte automático y el script ejecutado (adjunto en el release)
+          - [ ] Verificar que no hay impacto en jobs, procesos ETL ni otros consumidores
+          - [ ] Verificar la validación post-deploy de la ejecución: $RUN_URL
+
+          **Resultado:** agregar la etiqueta \`auditoria/conforme\` para certificar el release, o
+          \`auditoria/observado\` y comentar la observación (Inteligencia de Negocios tendrá un plazo para corregir;
+          vencido el plazo, TI puede ejecutar el workflow **Rollback** hacia ${{ steps.version.outputs.anterior || 'la versión anterior' }}).
+
+          <!-- auditoria-version:$V -->
+          EOF
+          sed -i 's/^          //' evidencias/auditoria.md
+          ASIG=$(echo "$ROL_TI" | tr -d ' ')
+          gh issue create --title "🔎 Auditoría post-PROD $V" --body-file evidencias/auditoria.md \
+              --label "auditoria/pendiente" ${ASIG:+--assignee "$ASIG"} \
+            || gh issue create --title "🔎 Auditoría post-PROD $V" --body-file evidencias/auditoria.md --label "auditoria/pendiente"
+
+      - name: Informar resultado en el PR
+        if: always() && steps.pr.outputs.numero != ''
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then
+            MSG="✅ **Desplegado en \`$DB\`** · versión \`${{ steps.version.outputs.version }}\` · [ejecución]($RUN_URL)"
+            [ "$ES_PROD" = "true" ] && MSG="$MSG · [release](${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ steps.version.outputs.version }}) · auditoría de TI abierta"
+          else
+            MSG="❌ **Falló el despliegue en \`$DB\`** · versión \`${{ steps.version.outputs.version }}\` · [ver ejecución]($RUN_URL). La base quedó en la versión anterior si el error ocurrió antes de publicar; revisar el issue de incidente."
+          fi
+          gh pr comment "${{ steps.pr.outputs.numero }}" --body "$MSG"
+
+      - name: Registrar incidente
+        if: failure()
+        run: |
+          gh issue create --title "🚨 Falló despliegue ${{ steps.version.outputs.version }} en $DB" --label "incidente" --body \
+            "El despliegue automático falló. Ejecución: $RUN_URL
+          Commit: $GITHUB_SHA · PR: ${{ steps.pr.outputs.numero && format('#{0}', steps.pr.outputs.numero) || 'n/a' }}
+          Responsable de análisis: Inteligencia de Negocios. Si el despliegue quedó parcial en PROD, TI evalúa ejecutar el workflow Rollback."
+
+  documentacion:
+    name: Publicar diccionario de datos
+    needs: desplegar
+    if: github.ref_name == 'main' && needs.desplegar.result == 'success'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.pages.outputs.page_url }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/preparar
+      - name: Generar diccionario
+        run: |
+          dotnet build "$PROYECTO" -c Release -nologo -v q
+          gh release list --limit 30 --json tagName,name,publishedAt \
+            --jq '[.[] | {tag: .tagName, titulo: .name, fecha: .publishedAt, url: ("${{ github.server_url }}/${{ github.repository }}/releases/tag/" + .tagName)}]' > releases.json
+          python3 scripts/ci/documentar.py sitio --dacpac "$DACPAC_BUILD" --proyecto database \
+            --releases releases.json --version "${{ needs.desplegar.outputs.version }}" --salida sitio
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: sitio
+      - id: pages
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Guía del proceso DataOps
+    url: https://github.com/URenatoNT22/DataOps_CMACT/blob/main/docs/01_PROCESO_Y_ROLES.md
+    about: Cómo se pasa un cambio de DEV a PROD, roles y plazos.

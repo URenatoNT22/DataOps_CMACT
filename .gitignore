@@ -1,0 +1,18 @@
+# Build del SQL Project
+database/**/bin/
+database/**/obj/
+*.dacpac
+# Salidas locales del pipeline
+artefactos/
+resultados/
+reporte/
+evidencias/
+destino/
+drift/
+sitio/
+build.log
+__pycache__/
+*.pyc
+.vs/
+.vscode/
+*.user

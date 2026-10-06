@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Proyecto SQL (SDK-style) del ambiente analítico de Inteligencia de Negocios.
+  Representa el ESTADO ESPERADO de la base de datos. El build genera el DACPAC,
+  que es el único artefacto que se promueve entre ambientes (DEV -> PROD).
+-->
+<Project DefaultTargets="Build">
+  <Sdk Name="Microsoft.Build.Sql" Version="1.0.0" />
+  <PropertyGroup>
+    <Name>BI_Analitico</Name>
+    <!-- SQL Server 2022 -->
+    <DSP>Microsoft.Data.Tools.Schema.Sql.Sql160DatabaseSchemaProvider</DSP>
+    <ModelCollation>1033, CI</ModelCollation>
+    <DefaultSchema>dbo</DefaultSchema>
+    <!-- Análisis estático de código T-SQL en cada build -->
+    <RunSqlCodeAnalysis>True</RunSqlCodeAnalysis>
+    <TreatTSqlWarningsAsErrors>False</TreatTSqlWarningsAsErrors>
+    <!-- La versión del DACPAC la inyecta el pipeline: dotnet build /p:DacVersion=1.2.3 -->
+    <DacVersion Condition="'$(DacVersion)' == ''">1.0.0</DacVersion>
+    <DacDescription>Ambiente analítico de Inteligencia de Negocios (tablones desnormalizados)</DacDescription>
+  </PropertyGroup>
+</Project>

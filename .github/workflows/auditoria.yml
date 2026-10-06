@@ -1,0 +1,116 @@
+# =====================================================================================
+#  AUDITORÍA POSTERIOR DE TI
+#  Cada despliegue a PROD abre un issue "🔎 Auditoría post-PROD vX.Y.Z" (etiqueta auditoria/pendiente).
+#  TI responde con etiquetas:
+#     auditoria/conforme  -> se certifica el release y se cierra el issue
+#     auditoria/observado -> se notifica a IN con plazo de corrección (SLA_CORRECCION_HORAS)
+#  Diariamente se revisan plazos: recordatorios a TI y, si vence la corrección, se habilita el rollback.
+# =====================================================================================
+name: Auditoría TI
+
+on:
+  issues:
+    types: [labeled]
+  schedule:
+    - cron: "0 13 * * 1-5"   # 08:00 hora Lima, lunes a viernes
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  respuesta:
+    name: Registrar dictamen de TI
+    if: github.event_name == 'issues' && startsWith(github.event.issue.title, '🔎 Auditoría post-PROD') && (github.event.label.name == 'auditoria/conforme' || github.event.label.name == 'auditoria/observado')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        env:
+          ROL_TI: ${{ vars.ROL_TI }}
+          ROL_JEFE_IN: ${{ vars.ROL_JEFE_IN }}
+          HORAS_CORRECCION: ${{ vars.SLA_CORRECCION_HORAS || '24' }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const lista = v => (v || '').split(',').map(s => s.trim()).filter(Boolean);
+            const TI = lista(process.env.ROL_TI).map(s => s.toLowerCase());
+            const issue = context.payload.issue, etiqueta = context.payload.label.name, actor = context.actor;
+            const n = issue.number;
+            if (!TI.includes(actor.toLowerCase())) {
+              await github.rest.issues.removeLabel({ owner, repo, issue_number: n, name: etiqueta });
+              await github.rest.issues.createComment({ owner, repo, issue_number: n,
+                body: `⛔ @${actor} no pertenece al rol TI (variable ROL_TI). Solo TI puede emitir el dictamen de auditoría.` });
+              return;
+            }
+            const version = (issue.body.match(/auditoria-version:(v[\d.]+)/) || [])[1];
+            const ahora = new Date().toLocaleString('es-PE', { timeZone: 'America/Lima' });
+            try { await github.rest.issues.removeLabel({ owner, repo, issue_number: n, name: 'auditoria/pendiente' }); } catch (e) {}
+
+            if (etiqueta === 'auditoria/conforme') {
+              await github.rest.issues.createComment({ owner, repo, issue_number: n,
+                body: `✅ **Release ${version} certificado por TI** (@${actor}, ${ahora}).` });
+              await github.rest.issues.update({ owner, repo, issue_number: n, state: 'closed', state_reason: 'completed' });
+              if (version) {
+                try {
+                  const rel = (await github.rest.repos.getReleaseByTag({ owner, repo, tag: version })).data;
+                  const cuerpo = rel.body.replace('**Auditoría de TI:** pendiente', `**Auditoría de TI:** ✅ conforme — @${actor}, ${ahora}`);
+                  await github.rest.repos.updateRelease({ owner, repo, release_id: rel.id, body: cuerpo });
+                } catch (e) { core.warning('No se pudo actualizar el release: ' + e.message); }
+              }
+            } else {
+              const limite = new Date(Date.now() + Number(process.env.HORAS_CORRECCION) * 3600e3)
+                .toLocaleString('es-PE', { timeZone: 'America/Lima' });
+              const jefes = lista(process.env.ROL_JEFE_IN);
+              await github.rest.issues.createComment({ owner, repo, issue_number: n,
+                body: `⚠️ **Release ${version} observado por TI** (@${actor}, ${ahora}).\n\n` +
+                      `${jefes.map(j => '@' + j).join(' ')} Inteligencia de Negocios tiene plazo hasta **${limite}** (hora Lima) para:\n` +
+                      `- corregir con un nuevo PR (\`fix: ...\`) que referencie este issue (\`Relacionado: #${n}\`), o\n` +
+                      `- responder la observación justificando el cambio.\n\n` +
+                      `Vencido el plazo sin corrección, TI puede ejecutar el workflow **Rollback**.\n\n<!-- plazo-correccion:${Date.now() + Number(process.env.HORAS_CORRECCION) * 3600e3} -->` });
+              if (jefes.length) { try { await github.rest.issues.addAssignees({ owner, repo, issue_number: n, assignees: jefes }); } catch (e) {} }
+              if (version) {
+                try {
+                  const rel = (await github.rest.repos.getReleaseByTag({ owner, repo, tag: version })).data;
+                  const cuerpo = rel.body.replace('**Auditoría de TI:** pendiente', `**Auditoría de TI:** ⚠️ observado — @${actor}, ${ahora} (#${n})`);
+                  await github.rest.repos.updateRelease({ owner, repo, release_id: rel.id, body: cuerpo });
+                } catch (e) { core.warning(e.message); }
+              }
+            }
+
+  plazos:
+    name: Revisar plazos de auditoría y corrección
+    if: github.event_name != 'issues'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        env:
+          ROL_TI: ${{ vars.ROL_TI }}
+          HORAS_AUDITORIA: ${{ vars.SLA_AUDITORIA_HORAS || '48' }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const TI = (process.env.ROL_TI || '').split(',').map(s => s.trim()).filter(Boolean);
+            const abiertos = await github.paginate(github.rest.issues.listForRepo, { owner, repo, state: 'open', per_page: 100 });
+            const ahora = Date.now();
+            for (const i of abiertos.filter(x => x.title.startsWith('🔎 Auditoría post-PROD'))) {
+              const etiquetas = i.labels.map(l => l.name);
+              const comentarios = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: i.number });
+              if (etiquetas.includes('auditoria/pendiente')) {
+                const horas = (ahora - new Date(i.created_at)) / 3600e3;
+                if (horas > Number(process.env.HORAS_AUDITORIA)) {
+                  await github.rest.issues.createComment({ owner, repo, issue_number: i.number,
+                    body: `⏰ Plazo de auditoría vencido (${Math.round(horas)} h). ${TI.map(u => '@' + u).join(' ')} por favor emitir dictamen.` });
+                }
+              }
+              if (etiquetas.includes('auditoria/observado') && !etiquetas.includes('rollback/habilitado')) {
+                const marca = comentarios.map(c => (c.body.match(/plazo-correccion:(\d+)/) || [])[1]).filter(Boolean).pop();
+                if (marca && ahora > Number(marca)) {
+                  await github.rest.issues.addLabels({ owner, repo, issue_number: i.number, labels: ['rollback/habilitado'] });
+                  await github.rest.issues.createComment({ owner, repo, issue_number: i.number,
+                    body: `⛔ Venció el plazo de corrección. ${TI.map(u => '@' + u).join(' ')} pueden ejecutar **Actions → Rollback** ` +
+                          `indicando la versión anterior y este issue (#${i.number}) como motivo. ` +
+                          `Recuerde: después del rollback, IN debe revertir el código en \`main\` para evitar drift.` });
+                }
+              }
+            }

@@ -1,0 +1,40 @@
+name: Solicitud de cambio de BI
+description: Requerimiento de un objeto nuevo o de una modificación en el ambiente analítico
+title: "[Solicitud] "
+labels: ["solicitud-cambio"]
+body:
+  - type: textarea
+    id: necesidad
+    attributes:
+      label: Necesidad de negocio
+      description: ¿Qué se necesita y para qué decisión o reporte?
+    validations:
+      required: true
+  - type: input
+    id: solicitante
+    attributes:
+      label: Área / usuario solicitante
+    validations:
+      required: true
+  - type: dropdown
+    id: tipo
+    attributes:
+      label: Tipo de cambio
+      options:
+        - Nueva columna en tablón
+        - Nuevo tablón
+        - Nueva vista de consumo / indicador
+        - Cambio de lógica de carga (SP)
+        - Corrección de error
+        - Otro
+    validations:
+      required: true
+  - type: textarea
+    id: objetos
+    attributes:
+      label: Objetos involucrados (si se conocen)
+      placeholder: tab.TB_CREDITO, rpt.vw_CARTERA_CREDITOS
+  - type: input
+    id: fecha
+    attributes:
+      label: Fecha requerida

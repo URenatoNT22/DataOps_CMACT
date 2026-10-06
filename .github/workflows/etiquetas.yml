@@ -1,0 +1,26 @@
+# Crea / actualiza las etiquetas del proceso a partir de .github/etiquetas.json
+name: Etiquetas del proceso
+
+on:
+  push:
+    branches: [main]
+    paths: [".github/etiquetas.json"]
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  etiquetas:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Sincronizar etiquetas
+        run: |
+          jq -c '.[]' .github/etiquetas.json | while read -r e; do
+            gh label create "$(jq -r .name <<<"$e")" --color "$(jq -r .color <<<"$e")" \
+              --description "$(jq -r .description <<<"$e")" --force
+          done

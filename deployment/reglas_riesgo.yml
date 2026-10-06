@@ -1,0 +1,72 @@
+# =====================================================================================
+#  Reglas de clasificación de riesgo de un cambio
+#  Dueño: TI / DBA (ver .github/CODEOWNERS). Cualquier cambio a este archivo
+#  se clasifica como SENSIBLE y requiere aprobación de TI.
+#
+#  Niveles:
+#    ESTANDAR  -> cambio preaprobado por política. Aprueba Jefe IN; TI audita después.
+#    SENSIBLE  -> requiere además visto previo de TI antes del merge a main.
+#    PROHIBIDO -> el pipeline no lo despliega nunca. Lo gestiona TI por su canal.
+# =====================================================================================
+
+# Operaciones del Deploy Report de SqlPackage que vuelven SENSIBLE un cambio
+operaciones_sensibles:
+  - Drop
+  - TableRebuild
+  - Rename
+  - Move
+
+# Alertas del Deploy Report que vuelven SENSIBLE un cambio (posible pérdida de datos, etc.)
+alertas_sensibles:
+  - DataIssue
+  - ColumnNullabilityChange   # puede fallar o forzar valores
+  - NotNullAddedToColumn
+
+# Patrones en el script de despliegue generado que vuelven SENSIBLE un cambio
+patrones_script_sensibles:
+  - pattern: '\bALTER\s+COLUMN\b'
+    motivo: Cambio de tipo, tamaño o nulabilidad de una columna existente
+  - pattern: '\bDROP\s+COLUMN\b'
+    motivo: Eliminación de columna
+  - pattern: '\bsp_rename\b'
+    motivo: Renombre de objeto o columna
+  - pattern: '\bTRUNCATE\s+TABLE\b'
+    motivo: Borrado masivo de datos en el despliegue
+
+# Tipos de objeto que el pipeline NUNCA debe tocar (seguridad / servidor)
+tipos_prohibidos:
+  - SqlUser
+  - SqlLogin
+  - SqlRole
+  - SqlRoleMembership
+  - SqlPermissionStatement
+  - SqlApplicationRole
+  - SqlServerRoleMembership
+  - SqlCredential
+  - SqlDatabaseCredential
+  - SqlLinkedServer
+  - SqlLinkedServerLogin
+
+# Sentencias prohibidas dentro del código del proyecto (se revisa el repositorio, no solo el diff)
+patrones_codigo_prohibidos:
+  - pattern: '^\s*(GRANT|DENY|REVOKE)\b'
+    motivo: Gestión de permisos (corresponde a TI)
+  - pattern: '\bCREATE\s+(USER|LOGIN|ROLE|APPLICATION\s+ROLE)\b'
+    motivo: Creación de identidades de seguridad (corresponde a TI)
+  - pattern: '\bALTER\s+(ROLE|SERVER\s+ROLE)\b.*\bADD\s+MEMBER\b'
+    motivo: Cambio de membresía de roles (corresponde a TI)
+  - pattern: '\bxp_cmdshell\b'
+    motivo: Ejecución de comandos del sistema operativo
+  - pattern: '\b(OPENROWSET|OPENDATASOURCE)\b'
+    motivo: Acceso ad hoc a fuentes externas
+  - pattern: '\bsp_configure\b'
+    motivo: Configuración de servidor
+
+# Esquemas en los que IN puede crear o modificar objetos. Un esquema nuevo es SENSIBLE.
+esquemas_permitidos: [src, tab, rpt, ctl, dbo]
+
+# Archivos de gobierno: si el PR los modifica, el cambio es SENSIBLE (requiere TI)
+archivos_gobierno:
+  - .github/
+  - deployment/
+  - scripts/ci/

@@ -1,0 +1,335 @@
+# =====================================================================================
+#  VALIDACIÓN DE PULL REQUEST
+#  Se ejecuta en cada PR hacia develop (DEV) o main (PROD). Nadie aprueba a ciegas:
+#    1. Convenciones   -> título Conventional Commits, rama correcta, plantilla completa
+#    2. Build          -> compila el SQL Project (DACPAC propuesto) y el de la rama destino (DACPAC actual)
+#    3. Pruebas        -> base EFÍMERA en el runner: instala la versión actual, carga datos ficticios,
+#                         actualiza a la versión propuesta (con datos) y corre pruebas de datos y de humo
+#    4. Destino real   -> Deploy Report + script contra BI_DEV o BI_PROD (si hay conexión) y jobs afectados
+#    5. Reporte        -> clasifica el riesgo, documenta el cambio, comenta el PR y etiqueta riesgo/*
+# =====================================================================================
+name: Validación PR
+
+on:
+  pull_request:
+    branches: [develop, main]
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  actions: write
+
+concurrency:
+  group: validacion-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  PROYECTO: database/BI_Analitico/BI_Analitico.sqlproj
+  DACPAC_BUILD: database/BI_Analitico/bin/Release/BI_Analitico.dacpac
+  DOTNET_NOLOGO: "true"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+
+jobs:
+  convenciones:
+    name: Convenciones del PR
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validar título, rama y descripción
+        env:
+          TITULO: ${{ github.event.pull_request.title }}
+          RAMA: ${{ github.head_ref }}
+          BASE: ${{ github.base_ref }}
+          CUERPO: ${{ github.event.pull_request.body }}
+        run: python3 scripts/ci/validar_pr.py
+
+  build:
+    name: Build y análisis de código
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/preparar
+
+      - name: Build del DACPAC propuesto
+        run: |
+          set -o pipefail
+          VERSION=$(python3 scripts/ci/version.py desarrollo ${{ github.run_number }})
+          echo "Versión de build: $VERSION"
+          dotnet build "$PROYECTO" -c Release -p:DacVersion="$VERSION" 2>&1 | tee build.log
+          mkdir -p artefactos/nuevo artefactos/base
+          cp "$DACPAC_BUILD" artefactos/nuevo/
+          cp build.log artefactos/
+
+      - name: Build del DACPAC actual (rama ${{ github.base_ref }})
+        run: |
+          git worktree add ../base "origin/${{ github.base_ref }}"
+          if [ -f "../base/$PROYECTO" ]; then
+            (cd ../base && dotnet build "$PROYECTO" -c Release -nologo -v q)
+            cp "../base/$DACPAC_BUILD" artefactos/base/
+          else
+            echo "::notice::La rama destino aún no tiene SQL Project: se compara contra un modelo vacío."
+          fi
+
+      - name: Archivos modificados en el PR
+        run: |
+          git diff --name-only "origin/${{ github.base_ref }}...HEAD" | tee artefactos/archivos_modificados.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: build
+          path: artefactos/
+          retention-days: 30
+
+  pruebas:
+    name: Pruebas en base efímera
+    needs: build
+    runs-on: ubuntu-latest
+    services:
+      mssql:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: "Ci_Efimera#2026"
+          MSSQL_PID: Developer
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P 'Ci_Efimera#2026' -Q 'SELECT 1' -b -o /dev/null"
+          --health-interval 10s --health-timeout 5s --health-retries 15
+    env:
+      SQL_SERVER: localhost,1433
+      SQL_USER: sa
+      SQL_PASSWORD: "Ci_Efimera#2026"
+      BASE_CI: BI_CI
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/preparar
+      - uses: actions/download-artifact@v4
+        with:
+          name: build
+          path: artefactos
+
+      - name: Crear base efímera
+        run: python3 scripts/ci/db.py --base master consulta --sql "CREATE DATABASE [$BASE_CI]"
+
+      - name: Instalar versión ACTUAL y cargar datos ficticios
+        if: hashFiles('artefactos/base/BI_Analitico.dacpac') != ''
+        run: |
+          scripts/ci/sqlpkg.sh publicar artefactos/base/BI_Analitico.dacpac "$BASE_CI"
+          python3 scripts/ci/db.py --base "$BASE_CI" script --archivo setup/02_datos_ficticios.sql
+
+      - name: Plan de cambios contra la base efímera (versión actual + datos)
+        run: |
+          mkdir -p resultados
+          scripts/ci/sqlpkg.sh reporte artefactos/nuevo/BI_Analitico.dacpac "$BASE_CI" resultados/efimera_deploy_report.xml
+          scripts/ci/sqlpkg.sh script  artefactos/nuevo/BI_Analitico.dacpac "$BASE_CI" resultados/efimera_deploy_script.sql
+
+      - name: Actualizar a la versión PROPUESTA (con datos existentes)
+        id: upgrade
+        run: |
+          if scripts/ci/sqlpkg.sh publicar artefactos/nuevo/BI_Analitico.dacpac "$BASE_CI" 2>&1 | tee resultados/upgrade.log; then
+            echo '{"estado":"OK","texto":"✅ la versión propuesta se instala sobre la actual con datos"}' > resultados/upgrade.json
+          elif grep -qiE "data loss|pérdida de datos|possible data loss" resultados/upgrade.log; then
+            echo "::warning::El despliegue se bloquea por posible pérdida de datos. Se continúa la prueba forzando, solo en la base efímera."
+            echo '{"estado":"BLOQUEADO_PERDIDA_DATOS","texto":"⚠️ bloqueado por posible pérdida de datos (requiere autorización de TI)"}' > resultados/upgrade.json
+            scripts/ci/sqlpkg.sh publicar artefactos/nuevo/BI_Analitico.dacpac "$BASE_CI" /p:BlockOnPossibleDataLoss=False
+          else
+            echo '{"estado":"ERROR","texto":"❌ la actualización falla (ver log)"}' > resultados/upgrade.json
+            exit 1
+          fi
+
+      - name: Cargar datos (si la base estaba vacía) y re-ejecutar la carga con el código nuevo
+        run: |
+          N=$(python3 scripts/ci/db.py --base "$BASE_CI" consulta --json --sql "SELECT COUNT(*) AS n FROM src.CREDITO" | python3 -c "import json,sys;print(json.load(sys.stdin)[0]['n'])")
+          if [ "$N" = "0" ]; then
+            python3 scripts/ci/db.py --base "$BASE_CI" script --archivo setup/02_datos_ficticios.sql
+          else
+            python3 scripts/ci/db.py --base "$BASE_CI" consulta --sql "EXEC ctl.usp_CARGA_DIARIA @FECHA_CORTE = NULL"
+          fi
+
+      - name: Pruebas de datos
+        run: python3 scripts/ci/db.py --base "$BASE_CI" pruebas --carpeta tests/datos --salida resultados/pruebas.json --no-fallar
+
+      - name: Pruebas de humo
+        run: python3 scripts/ci/db.py --base "$BASE_CI" smoke --probar-carga --salida resultados/smoke.json --no-fallar
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pruebas
+          path: resultados/
+
+      - name: Resultado de las pruebas
+        run: |
+          python3 - <<'EOF'
+          import json, sys
+          malas = []
+          for f in ("resultados/pruebas.json", "resultados/smoke.json"):
+              for r in json.load(open(f))["resultados"]:
+                  if r["estado"] in ("FALLA", "ERROR_EJECUCION"):
+                      malas.append(r["prueba"])
+          if malas:
+              print("::error title=Pruebas::Fallaron: " + ", ".join(malas))
+              sys.exit(1)
+          print("Todas las pruebas obligatorias pasaron")
+          EOF
+
+  destino:
+    name: Impacto en el destino real
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      SQL_SERVER: ${{ secrets.SQL_SERVER }}
+      SQL_USER: ${{ secrets.SQL_USER }}
+      SQL_PASSWORD: ${{ secrets.SQL_PASSWORD }}
+      DB_DESTINO: ${{ github.base_ref == 'main' && (vars.DB_PROD || 'BI_PROD') || (vars.DB_DEV || 'BI_DEV') }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/preparar
+      - uses: actions/download-artifact@v4
+        with:
+          name: build
+          path: artefactos
+
+      - name: Verificar conexión con ${{ env.DB_DESTINO }}
+        id: conexion
+        run: |
+          mkdir -p destino
+          if [ -z "$SQL_SERVER" ]; then
+            echo "::notice::Secretos SQL_* no configurados: el riesgo se evalúa contra la base efímera."
+            echo "ok=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if timeout 120 python3 scripts/ci/db.py --base "$DB_DESTINO" consulta --sql "SELECT DB_NAME() AS base"; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::No hay conexión con $DB_DESTINO (¿ngrok activo? ¿cambió la dirección?). Se evalúa contra la base efímera."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy Report y script contra ${{ env.DB_DESTINO }}
+        if: steps.conexion.outputs.ok == 'true'
+        run: |
+          scripts/ci/sqlpkg.sh reporte artefactos/nuevo/BI_Analitico.dacpac "$DB_DESTINO" destino/deploy_report.xml
+          scripts/ci/sqlpkg.sh script  artefactos/nuevo/BI_Analitico.dacpac "$DB_DESTINO" destino/deploy_script.sql
+
+      - name: Jobs de SQL Agent que usan los objetos afectados
+        if: steps.conexion.outputs.ok == 'true'
+        run: |
+          OBJETOS=$(python3 - <<'EOF'
+          import sys
+          sys.path.insert(0, "scripts/ci")
+          from clasificar_riesgo import leer_deploy_report
+          ops, _ = leer_deploy_report("destino/deploy_report.xml")
+          objs = sorted({i["objeto"] for items in (ops or {}).values() for i in items if i["objeto"] and i["objeto"].count("[") == 2})
+          print(",".join(objs))
+          EOF
+          )
+          echo "Objetos: $OBJETOS"
+          python3 scripts/ci/db.py --base "$DB_DESTINO" dependencias-jobs --objetos "$OBJETOS" --salida destino/jobs.json
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: destino
+          path: destino/
+          if-no-files-found: ignore
+
+  reporte:
+    name: Reporte y clasificación de riesgo
+    needs: [build, pruebas, destino]
+    if: always() && needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    env:
+      DB_DESTINO: ${{ github.base_ref == 'main' && (vars.DB_PROD || 'BI_PROD') || (vars.DB_DEV || 'BI_DEV') }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/preparar
+        with:
+          dotnet: "false"
+      - uses: actions/download-artifact@v4
+        with:
+          path: entrada
+
+      - name: Clasificar riesgo
+        run: |
+          if [ -f entrada/destino/deploy_report.xml ]; then
+            REP=entrada/destino/deploy_report.xml; SCR=entrada/destino/deploy_script.sql; DEST="$DB_DESTINO"
+          else
+            REP=entrada/pruebas/efimera_deploy_report.xml; SCR=entrada/pruebas/efimera_deploy_script.sql; DEST="base efímera de CI"
+          fi
+          python3 scripts/ci/clasificar_riesgo.py --deploy-report "$REP" --script "$SCR" \
+            --archivos entrada/build/archivos_modificados.txt --proyecto database --destino "$DEST" --salida reporte/riesgo.json
+          echo "SCRIPT_DESPLIEGUE=$SCR" >> "$GITHUB_ENV"
+          # Si el destino real no estuvo disponible, se marca que la evaluación fue contra la base efímera
+          if [ ! -f entrada/destino/deploy_report.xml ]; then
+            python3 -c "import json;p='reporte/riesgo.json';d=json.load(open(p));d['evaluado_contra_destino']=False;json.dump(d,open(p,'w'),ensure_ascii=False,indent=2)"
+          fi
+
+      - name: Generar documentación del cambio
+        env:
+          CONTEXTO: |
+            {"repo": "${{ github.repository }}", "pr": ${{ github.event.pull_request.number }},
+             "titulo": ${{ toJSON(github.event.pull_request.title) }}, "autor": "${{ github.event.pull_request.user.login }}",
+             "base": "${{ github.base_ref }}", "head": "${{ github.head_ref }}", "sha": "${{ github.event.pull_request.head.sha }}",
+             "destino": "${{ env.DB_DESTINO }}",
+             "run_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"}
+        run: |
+          echo "$CONTEXTO" > reporte/contexto.json
+          BASE_ARG=""
+          [ -f entrada/build/base/BI_Analitico.dacpac ] && BASE_ARG="--dacpac-base entrada/build/base/BI_Analitico.dacpac"
+          python3 scripts/ci/documentar.py cambio \
+            --dacpac-nuevo entrada/build/nuevo/BI_Analitico.dacpac $BASE_ARG \
+            --riesgo reporte/riesgo.json --pruebas entrada/pruebas/pruebas.json --smoke entrada/pruebas/smoke.json \
+            --jobs entrada/destino/jobs.json --upgrade entrada/pruebas/upgrade.json --script "$SCRIPT_DESPLIEGUE" \
+            --build-log entrada/build/build.log --contexto reporte/contexto.json \
+            --salida-md reporte/comentario.md --salida-html reporte/reporte_cambio.html
+          cat reporte/comentario.md >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reporte-cambio
+          path: reporte/
+
+      - name: Publicar comentario y etiquetas en el PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const cuerpo = fs.readFileSync('reporte/comentario.md', 'utf8');
+            const riesgo = JSON.parse(fs.readFileSync('reporte/riesgo.json', 'utf8'));
+            const { owner, repo } = context.repo;
+            const issue_number = context.payload.pull_request.number;
+            const comentarios = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number });
+            const previo = comentarios.find(c => c.body && c.body.includes('<!-- reporte-dataops -->'));
+            if (previo) await github.rest.issues.updateComment({ owner, repo, comment_id: previo.id, body: cuerpo });
+            else await github.rest.issues.createComment({ owner, repo, issue_number, body: cuerpo });
+
+            const nivel = riesgo.nivel.toLowerCase();
+            const deseadas = [`riesgo/${nivel}`];
+            if (riesgo.perdida_datos_posible) deseadas.push('riesgo/perdida-datos');
+            const actuales = (await github.rest.issues.listLabelsOnIssue({ owner, repo, issue_number })).data.map(l => l.name);
+            for (const l of actuales.filter(l => l.startsWith('riesgo/') && !deseadas.includes(l)))
+              await github.rest.issues.removeLabel({ owner, repo, issue_number, name: l });
+            const faltan = deseadas.filter(l => !actuales.includes(l));
+            if (faltan.length) await github.rest.issues.addLabels({ owner, repo, issue_number, labels: faltan });
+
+            // Las etiquetas puestas por el pipeline no disparan otros workflows: se re-ejecuta el gate
+            // de aprobaciones para que lea la nueva clasificación de riesgo.
+            try {
+              const runs = (await github.rest.actions.listWorkflowRuns({ owner, repo, workflow_id: 'gate-aprobaciones.yml',
+                head_sha: context.payload.pull_request.head.sha, per_page: 1 })).data.workflow_runs;
+              if (runs.length && runs[0].status === 'completed')
+                await github.rest.actions.reRunWorkflow({ owner, repo, run_id: runs[0].id });
+            } catch (e) { core.warning('No se pudo re-ejecutar el gate: ' + e.message); }
+
+      - name: Bloquear si hay fallas o el cambio es PROHIBIDO
+        if: always()
+        run: |
+          NIVEL=$(python3 -c "import json;print(json.load(open('reporte/riesgo.json'))['nivel'])")
+          if [ "$NIVEL" = "PROHIBIDO" ]; then echo "::error title=Riesgo PROHIBIDO::El cambio incluye elementos que el pipeline no puede desplegar."; exit 1; fi
+          if [ "${{ needs.pruebas.result }}" != "success" ]; then echo "::error title=Pruebas::Las pruebas en la base efímera fallaron."; exit 1; fi
+          echo "Riesgo $NIVEL · pruebas OK"

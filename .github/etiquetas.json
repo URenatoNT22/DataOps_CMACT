@@ -1,0 +1,14 @@
+[
+  {"name": "riesgo/estandar",            "color": "3B6D11", "description": "Cambio estándar preaprobado: aprueba Jefe IN, TI audita después"},
+  {"name": "riesgo/sensible",            "color": "BA7517", "description": "Cambio sensible: requiere visto previo de TI antes de PROD"},
+  {"name": "riesgo/prohibido",           "color": "A32D2D", "description": "Cambio que el pipeline no puede desplegar"},
+  {"name": "riesgo/perdida-datos",       "color": "D85A30", "description": "El despliegue podría perder datos"},
+  {"name": "ti/autoriza-perdida-datos",  "color": "791F1F", "description": "TI autoriza explícitamente la posible pérdida de datos (solo ROL_TI)"},
+  {"name": "auditoria/pendiente",        "color": "185FA5", "description": "Release en PROD esperando dictamen de TI"},
+  {"name": "auditoria/conforme",         "color": "0F6E56", "description": "TI certifica el release"},
+  {"name": "auditoria/observado",        "color": "993C1D", "description": "TI observa el release: IN debe corregir en plazo"},
+  {"name": "rollback/habilitado",        "color": "501313", "description": "Venció el plazo de corrección: TI puede ejecutar rollback"},
+  {"name": "incidente",                  "color": "E24B4A", "description": "Falla de despliegue o rollback ejecutado"},
+  {"name": "drift",                      "color": "534AB7", "description": "La base no coincide con el repositorio"},
+  {"name": "solicitud-cambio",           "color": "888780", "description": "Requerimiento de cambio de BI"}
+]

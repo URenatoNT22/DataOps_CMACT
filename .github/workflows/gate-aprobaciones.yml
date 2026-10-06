@@ -1,0 +1,101 @@
+# =====================================================================================
+#  GATE DE APROBACIONES (check obligatorio en la protección de ramas)
+#  Verifica que el PR tenga las aprobaciones que exige su destino y su nivel de riesgo.
+#  Los roles se configuran en Settings > Secrets and variables > Actions > Variables:
+#     ROL_DATA_ENGINEERING  usuarios que aprueban hacia develop (DEV)
+#     ROL_JEFE_IN           usuarios que aprueban hacia main (PROD)
+#     ROL_TI                usuarios de TI / DBA (visto previo en cambios SENSIBLES)
+#  (listas separadas por comas, ej: "usuario1,usuario2")
+#
+#  Regla              develop (DEV)                 main (PROD)
+#  ESTANDAR           1 de Data Engineering/Jefe IN 1 de Jefe IN
+#  SENSIBLE           1 de Data Engineering/Jefe IN 1 de Jefe IN + 1 de TI
+#  PROHIBIDO          bloqueado                     bloqueado
+#  El autor del PR nunca cuenta como aprobador de su propio cambio.
+# =====================================================================================
+name: Gate de aprobaciones
+
+on:
+  pull_request:
+    branches: [develop, main]
+    types: [opened, synchronize, reopened, labeled, unlabeled, ready_for_review]
+  pull_request_review:
+    types: [submitted, dismissed, edited]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  aprobaciones:
+    name: Aprobaciones requeridas
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        env:
+          ROL_DATA_ENGINEERING: ${{ vars.ROL_DATA_ENGINEERING }}
+          ROL_JEFE_IN: ${{ vars.ROL_JEFE_IN }}
+          ROL_TI: ${{ vars.ROL_TI }}
+        with:
+          script: |
+            const lista = v => (v || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+            const DE = lista(process.env.ROL_DATA_ENGINEERING), JEFE = lista(process.env.ROL_JEFE_IN), TI = lista(process.env.ROL_TI);
+            const pr = context.payload.pull_request;
+            const { owner, repo } = context.repo;
+            const autor = pr.user.login.toLowerCase();
+            const base = pr.base.ref;
+
+            // Estado actual de las etiquetas (el evento puede traer una foto antigua)
+            const etiquetas = (await github.rest.issues.listLabelsOnIssue({ owner, repo, issue_number: pr.number }))
+              .data.map(l => l.name);
+            const riesgo = etiquetas.includes('riesgo/prohibido') ? 'PROHIBIDO'
+                         : etiquetas.includes('riesgo/sensible') ? 'SENSIBLE'
+                         : etiquetas.includes('riesgo/estandar') ? 'ESTANDAR' : null;
+
+            // Última revisión de cada usuario, solo sobre el último commit del PR
+            const revisiones = await github.paginate(github.rest.pulls.listReviews, { owner, repo, pull_number: pr.number });
+            const ultima = {};
+            for (const r of revisiones) {
+              if (!r.user || r.state === 'COMMENTED') continue;
+              ultima[r.user.login.toLowerCase()] = r;
+            }
+            const head = (await github.rest.pulls.get({ owner, repo, pull_number: pr.number })).data.head.sha;
+            const aprobadores = Object.entries(ultima)
+              .filter(([u, r]) => r.state === 'APPROVED' && r.commit_id === head && u !== autor)
+              .map(([u]) => u);
+            const cambiosSolicitados = Object.entries(ultima).filter(([, r]) => r.state === 'CHANGES_REQUESTED').map(([u]) => u);
+
+            const faltan = [];
+            core.info(`PR #${pr.number} -> ${base} | riesgo: ${riesgo} | aprobadores válidos: ${aprobadores.join(', ') || 'ninguno'}`);
+            if (!riesgo) faltan.push('clasificación de riesgo (espere a que termine "Validación PR")');
+            if (riesgo === 'PROHIBIDO') faltan.push('el cambio es PROHIBIDO: no puede desplegarse por el pipeline');
+            if (cambiosSolicitados.length) faltan.push(`resolver cambios solicitados por: ${cambiosSolicitados.join(', ')}`);
+
+            const tiene = rol => aprobadores.some(u => rol.includes(u));
+            if (base === 'develop') {
+              if (!DE.length && !JEFE.length) faltan.push('configurar las variables ROL_DATA_ENGINEERING / ROL_JEFE_IN');
+              else if (!tiene([...DE, ...JEFE])) faltan.push(`aprobación de Data Engineering (${[...DE, ...JEFE].join(', ')})`);
+            } else if (base === 'main') {
+              if (!JEFE.length) faltan.push('configurar la variable ROL_JEFE_IN');
+              else if (!tiene(JEFE)) faltan.push(`aprobación del Jefe IN (${JEFE.join(', ')})`);
+              if (riesgo === 'SENSIBLE') {
+                if (!TI.length) faltan.push('configurar la variable ROL_TI');
+                else if (!tiene(TI)) faltan.push(`visto previo de TI / DBA (${TI.join(', ')}) por ser cambio SENSIBLE`);
+              }
+            }
+
+            await core.summary
+              .addHeading('Gate de aprobaciones', 3)
+              .addTable([
+                [{ data: 'Destino', header: true }, { data: 'Riesgo', header: true }, { data: 'Aprobadores válidos', header: true }],
+                [base, riesgo || 'pendiente', aprobadores.join(', ') || '—'],
+              ])
+              .addList(faltan.length ? faltan.map(f => '⏳ Falta: ' + f) : ['✅ Aprobaciones completas'])
+              .write();
+
+            if (faltan.length) core.setFailed('Falta: ' + faltan.join(' | '));
+            else core.info('Aprobaciones completas');
