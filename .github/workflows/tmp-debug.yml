@@ -1,0 +1,17 @@
+name: tmp debug
+on:
+  push:
+    branches: [tmp/debug]
+permissions:
+  contents: write
+jobs:
+  d:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/preparar
+      - run: |
+          scripts/ci/build.sh 1.0.0 build.log
+          mkdir -p out && cp database/BI_Analitico/bin/Release/BI_Analitico.dacpac out/ && cp build.log out/
+          git config user.name bot && git config user.email bot@x
+          git checkout --orphan tmp/debug-out && git rm -rqf --cached . && git add -f out && git commit -qm out && git push -f origin tmp/debug-out
