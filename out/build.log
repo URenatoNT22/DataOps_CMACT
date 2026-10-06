@@ -1,0 +1,44 @@
+  Determining projects to restore...
+  Restored /home/runner/work/DataOps_CMACT/DataOps_CMACT/database/BI_Analitico/BI_Analitico.sqlproj (in 1.22 sec).
+  Creating a model to represent the project...
+  Loading project references...
+  Loading project files...
+  Building the project model and resolving object interdependencies...
+  Validating the project model...
+  Writing model to /home/runner/work/DataOps_CMACT/DataOps_CMACT/database/BI_Analitico/obj/Release/Model.xml...
+  BI_Analitico -> /home/runner/work/DataOps_CMACT/DataOps_CMACT/database/BI_Analitico/bin/Release/BI_Analitico.dll
+  Creating a model to represent the project...
+  Loading project references...
+  Loading project files...
+  Building the project model and resolving object interdependencies...
+  Validating the project model...
+  10 problems have been detected.
+  The results are saved in /home/runner/work/DataOps_CMACT/DataOps_CMACT/database/BI_Analitico/bin/Release/BI_Analitico.StaticCodeAnalysis.Results.xml.
+/home/runner/work/DataOps_CMACT/DataOps_CMACT/database/BI_Analitico/rpt/Views/vw_CRONOGRAMA_VENCIMIENTOS.sql(19,7,19,7): StaticCodeAnalysis warning SR0004: Microsoft.Rules.Data : A column without an index that is used as an IN predicate test expression might degrade performance. [/home/runner/work/DataOps_CMACT/DataOps_CMACT/database/BI_Analitico/BI_Analitico.sqlproj]
+/home/runner/work/DataOps_CMACT/DataOps_CMACT/database/BI_Analitico/tab/StoredProcedures/usp_CARGA_TB_CRONOGRAMA.sql(14,13,14,13): StaticCodeAnalysis warning SR0014: Microsoft.Rules.Data : Data loss might occur when casting from Unicode String(27) to VarChar(128). [/home/runner/work/DataOps_CMACT/DataOps_CMACT/database/BI_Analitico/BI_Analitico.sqlproj]
+/home/runner/work/DataOps_CMACT/DataOps_CMACT/database/BI_Analitico/tab/StoredProcedures/usp_CARGA_TB_CRONOGRAMA.sql(14,59,14,59): StaticCodeAnalysis warning SR0014: Microsoft.Rules.Data : Data loss might occur when casting from Datetime2(7) to Datetime2(0). [/home/runner/work/DataOps_CMACT/DataOps_CMACT/database/BI_Analitico/BI_Analitico.sqlproj]
+/home/runner/work/DataOps_CMACT/DataOps_CMACT/database/BI_Analitico/tab/StoredProcedures/usp_CARGA_TB_CRONOGRAMA.sql(45,13,45,13): StaticCodeAnalysis warning SR0014: Microsoft.Rules.Data : Data loss might occur when casting from Decimal(38, 2) to Decimal(18, 2). [/home/runner/work/DataOps_CMACT/DataOps_CMACT/database/BI_Analitico/BI_Analitico.sqlproj]
+/home/runner/work/DataOps_CMACT/DataOps_CMACT/database/BI_Analitico/tab/StoredProcedures/usp_CARGA_TB_CRONOGRAMA.sql(70,16,70,16): StaticCodeAnalysis warning SR0014: Microsoft.Rules.Data : Data loss might occur when casting from Datetime2(7) to Datetime2(0). [/home/runner/work/DataOps_CMACT/DataOps_CMACT/database/BI_Analitico/BI_Analitico.sqlproj]
+/home/runner/work/DataOps_CMACT/DataOps_CMACT/database/BI_Analitico/tab/StoredProcedures/usp_CARGA_TB_CRONOGRAMA.sql(77,16,77,16): StaticCodeAnalysis warning SR0014: Microsoft.Rules.Data : Data loss might occur when casting from Datetime2(7) to Datetime2(0). [/home/runner/work/DataOps_CMACT/DataOps_CMACT/database/BI_Analitico/BI_Analitico.sqlproj]
+/home/runner/work/DataOps_CMACT/DataOps_CMACT/database/BI_Analitico/tab/StoredProcedures/usp_CARGA_TB_CREDITO.sql(14,13,14,13): StaticCodeAnalysis warning SR0014: Microsoft.Rules.Data : Data loss might occur when casting from Unicode String(24) to VarChar(128). [/home/runner/work/DataOps_CMACT/DataOps_CMACT/database/BI_Analitico/BI_Analitico.sqlproj]
+/home/runner/work/DataOps_CMACT/DataOps_CMACT/database/BI_Analitico/tab/StoredProcedures/usp_CARGA_TB_CREDITO.sql(14,56,14,56): StaticCodeAnalysis warning SR0014: Microsoft.Rules.Data : Data loss might occur when casting from Datetime2(7) to Datetime2(0). [/home/runner/work/DataOps_CMACT/DataOps_CMACT/database/BI_Analitico/BI_Analitico.sqlproj]
+/home/runner/work/DataOps_CMACT/DataOps_CMACT/database/BI_Analitico/tab/StoredProcedures/usp_CARGA_TB_CREDITO.sql(91,16,91,16): StaticCodeAnalysis warning SR0014: Microsoft.Rules.Data : Data loss might occur when casting from Datetime2(7) to Datetime2(0). [/home/runner/work/DataOps_CMACT/DataOps_CMACT/database/BI_Analitico/BI_Analitico.sqlproj]
+/home/runner/work/DataOps_CMACT/DataOps_CMACT/database/BI_Analitico/tab/StoredProcedures/usp_CARGA_TB_CREDITO.sql(98,16,98,16): StaticCodeAnalysis warning SR0014: Microsoft.Rules.Data : Data loss might occur when casting from Datetime2(7) to Datetime2(0). [/home/runner/work/DataOps_CMACT/DataOps_CMACT/database/BI_Analitico/BI_Analitico.sqlproj]
+  BI_Analitico -> /home/runner/work/DataOps_CMACT/DataOps_CMACT/database/BI_Analitico/bin/Release/BI_Analitico.dacpac
+
+Build succeeded.
+
+/home/runner/work/DataOps_CMACT/DataOps_CMACT/database/BI_Analitico/rpt/Views/vw_CRONOGRAMA_VENCIMIENTOS.sql(19,7,19,7): StaticCodeAnalysis warning SR0004: Microsoft.Rules.Data : A column without an index that is used as an IN predicate test expression might degrade performance. [/home/runner/work/DataOps_CMACT/DataOps_CMACT/database/BI_Analitico/BI_Analitico.sqlproj]
+/home/runner/work/DataOps_CMACT/DataOps_CMACT/database/BI_Analitico/tab/StoredProcedures/usp_CARGA_TB_CRONOGRAMA.sql(14,13,14,13): StaticCodeAnalysis warning SR0014: Microsoft.Rules.Data : Data loss might occur when casting from Unicode String(27) to VarChar(128). [/home/runner/work/DataOps_CMACT/DataOps_CMACT/database/BI_Analitico/BI_Analitico.sqlproj]
+/home/runner/work/DataOps_CMACT/DataOps_CMACT/database/BI_Analitico/tab/StoredProcedures/usp_CARGA_TB_CRONOGRAMA.sql(14,59,14,59): StaticCodeAnalysis warning SR0014: Microsoft.Rules.Data : Data loss might occur when casting from Datetime2(7) to Datetime2(0). [/home/runner/work/DataOps_CMACT/DataOps_CMACT/database/BI_Analitico/BI_Analitico.sqlproj]
+/home/runner/work/DataOps_CMACT/DataOps_CMACT/database/BI_Analitico/tab/StoredProcedures/usp_CARGA_TB_CRONOGRAMA.sql(45,13,45,13): StaticCodeAnalysis warning SR0014: Microsoft.Rules.Data : Data loss might occur when casting from Decimal(38, 2) to Decimal(18, 2). [/home/runner/work/DataOps_CMACT/DataOps_CMACT/database/BI_Analitico/BI_Analitico.sqlproj]
+/home/runner/work/DataOps_CMACT/DataOps_CMACT/database/BI_Analitico/tab/StoredProcedures/usp_CARGA_TB_CRONOGRAMA.sql(70,16,70,16): StaticCodeAnalysis warning SR0014: Microsoft.Rules.Data : Data loss might occur when casting from Datetime2(7) to Datetime2(0). [/home/runner/work/DataOps_CMACT/DataOps_CMACT/database/BI_Analitico/BI_Analitico.sqlproj]
+/home/runner/work/DataOps_CMACT/DataOps_CMACT/database/BI_Analitico/tab/StoredProcedures/usp_CARGA_TB_CRONOGRAMA.sql(77,16,77,16): StaticCodeAnalysis warning SR0014: Microsoft.Rules.Data : Data loss might occur when casting from Datetime2(7) to Datetime2(0). [/home/runner/work/DataOps_CMACT/DataOps_CMACT/database/BI_Analitico/BI_Analitico.sqlproj]
+/home/runner/work/DataOps_CMACT/DataOps_CMACT/database/BI_Analitico/tab/StoredProcedures/usp_CARGA_TB_CREDITO.sql(14,13,14,13): StaticCodeAnalysis warning SR0014: Microsoft.Rules.Data : Data loss might occur when casting from Unicode String(24) to VarChar(128). [/home/runner/work/DataOps_CMACT/DataOps_CMACT/database/BI_Analitico/BI_Analitico.sqlproj]
+/home/runner/work/DataOps_CMACT/DataOps_CMACT/database/BI_Analitico/tab/StoredProcedures/usp_CARGA_TB_CREDITO.sql(14,56,14,56): StaticCodeAnalysis warning SR0014: Microsoft.Rules.Data : Data loss might occur when casting from Datetime2(7) to Datetime2(0). [/home/runner/work/DataOps_CMACT/DataOps_CMACT/database/BI_Analitico/BI_Analitico.sqlproj]
+/home/runner/work/DataOps_CMACT/DataOps_CMACT/database/BI_Analitico/tab/StoredProcedures/usp_CARGA_TB_CREDITO.sql(91,16,91,16): StaticCodeAnalysis warning SR0014: Microsoft.Rules.Data : Data loss might occur when casting from Datetime2(7) to Datetime2(0). [/home/runner/work/DataOps_CMACT/DataOps_CMACT/database/BI_Analitico/BI_Analitico.sqlproj]
+/home/runner/work/DataOps_CMACT/DataOps_CMACT/database/BI_Analitico/tab/StoredProcedures/usp_CARGA_TB_CREDITO.sql(98,16,98,16): StaticCodeAnalysis warning SR0014: Microsoft.Rules.Data : Data loss might occur when casting from Datetime2(7) to Datetime2(0). [/home/runner/work/DataOps_CMACT/DataOps_CMACT/database/BI_Analitico/BI_Analitico.sqlproj]
+    10 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:12.57
