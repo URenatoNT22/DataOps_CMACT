@@ -34,6 +34,7 @@ CREATE TABLE [tab].[TB_CREDITO]
     [ESTADO_CREDITO] VARCHAR(20) NOT NULL,
     [FECHA_PROXIMO_VENCIMIENTO] DATE NULL,
     [FECHA_CARGA] DATETIME2(0) NOT NULL CONSTRAINT [DF_TB_CREDITO_FECHA_CARGA] DEFAULT (SYSDATETIME()),
+    [RANGO_ATRASO] VARCHAR(10) NULL,
     CONSTRAINT [PK_TB_CREDITO] PRIMARY KEY CLUSTERED ([FECHA_CORTE], [COD_CREDITO])
 );
 GO
@@ -171,4 +172,8 @@ GO
 EXEC sys.sp_addextendedproperty @name = N'MS_Description', @value = N'Fecha y hora de carga del registro.',
     @level0type = N'SCHEMA', @level0name = N'tab', @level1type = N'TABLE', @level1name = N'TB_CREDITO',
     @level2type = N'COLUMN', @level2name = N'FECHA_CARGA';
+GO
+EXEC sys.sp_addextendedproperty @name = N'MS_Description', @value = N'Tramo de días de atraso para gestión de cobranza: AL DIA, 1-8, 9-30, 31-60, 61-120, MAS DE 120.',
+    @level0type = N'SCHEMA', @level0name = N'tab', @level1type = N'TABLE', @level1name = N'TB_CREDITO',
+    @level2type = N'COLUMN', @level2name = N'RANGO_ATRASO';
 GO
