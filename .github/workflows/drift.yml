@@ -16,6 +16,10 @@ permissions:
   contents: read
   issues: write
 
+defaults:
+  run:
+    shell: bash   # bash -eo pipefail: un error en una tubería (cmd | tee) detiene el paso
+
 jobs:
   drift:
     name: Drift en ${{ matrix.ambiente }}

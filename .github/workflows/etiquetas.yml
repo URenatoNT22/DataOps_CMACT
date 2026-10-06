@@ -11,6 +11,10 @@ permissions:
   issues: write
   contents: read
 
+defaults:
+  run:
+    shell: bash   # bash -eo pipefail: un error en una tubería (cmd | tee) detiene el paso
+
 jobs:
   etiquetas:
     runs-on: ubuntu-latest

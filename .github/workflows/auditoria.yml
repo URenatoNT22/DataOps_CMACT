@@ -19,6 +19,10 @@ permissions:
   contents: write
   issues: write
 
+defaults:
+  run:
+    shell: bash   # bash -eo pipefail: un error en una tubería (cmd | tee) detiene el paso
+
 jobs:
   respuesta:
     name: Registrar dictamen de TI

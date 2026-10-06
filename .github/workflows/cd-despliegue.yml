@@ -31,6 +31,10 @@ env:
   DOTNET_NOLOGO: "true"
   DOTNET_CLI_TELEMETRY_OPTOUT: "true"
 
+defaults:
+  run:
+    shell: bash   # bash -eo pipefail: un error en una tubería (cmd | tee) detiene el paso
+
 jobs:
   configuracion:
     name: Verificar configuración
