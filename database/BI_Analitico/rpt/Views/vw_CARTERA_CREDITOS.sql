@@ -8,7 +8,6 @@ SELECT
     [t].[NOMBRE_CLIENTE],
     [t].[SEGMENTO_CLIENTE],
     [t].[REGION],
-    [t].[ZONA],
     [t].[NOMBRE_AGENCIA],
     [t].[ANALISTA],
     [t].[TIPO_CREDITO],
