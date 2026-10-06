@@ -68,7 +68,8 @@ def clasificar(reglas, operaciones, alertas, script, archivos, proyecto):
                     subir("PROHIBIDO", f"{nombre} de objeto de seguridad {it['objeto']} ({it['tipo']})")
                 esq = esquema_de(it["objeto"])
                 if it["tipo"] == "SqlSchema" and nombre == "Create":
-                    subir("SENSIBLE", f"Creación de esquema nuevo {it['objeto']}")
+                    if esquema_de(it["objeto"]) not in reglas.get("esquemas_permitidos", []):
+                        subir("SENSIBLE", f"Creación de esquema no autorizado {it['objeto']}")
                 elif esq and it["tipo"] not in ("SqlSchema",) and esq not in reglas.get("esquemas_permitidos", []) \
                         and it["tipo"] not in reglas.get("tipos_prohibidos", []):
                     subir("SENSIBLE", f"Objeto fuera de los esquemas permitidos: {it['objeto']}")
