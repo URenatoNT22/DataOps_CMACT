@@ -5,7 +5,7 @@
   son los mismos en todos lados, solo cambia a dónde apunta.
   Dueño: TI / DBA (ver .github/CODEOWNERS). Cambiar este archivo es un cambio SENSIBLE.
 -->
-<Project ToolsVersion="Current">
+<Project ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup>
     <!-- Seguridad: nunca perder datos sin autorización explícita (el pipeline solo lo relaja
          si TI agregó la etiqueta ti/autoriza-perdida-datos en el Pull Request). -->
