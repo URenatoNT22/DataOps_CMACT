@@ -59,6 +59,8 @@ def conectar(base=None, autocommit=True):
             ultimo_error = exc
             print(f"  conexión intento {intento}/5 falló: {exc}", file=sys.stderr)
             time.sleep(min(5 * intento, 20))
+    detalle = str(ultimo_error).replace("%", "%25").replace("\n", " ")[:600]
+    print(f"::warning title=Conexión SQL::No se pudo conectar a {host}:{puerto} (base {base or os.environ.get('SQL_DATABASE', 'master')}): {detalle}")
     sys.exit(f"ERROR: no se pudo conectar a {host}:{puerto} -> {ultimo_error}")
 
 
