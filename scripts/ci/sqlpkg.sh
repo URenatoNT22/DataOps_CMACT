@@ -4,6 +4,7 @@
 #   sqlpkg.sh script   <dacpac> <base> <salida.sql> [opciones extra]
 #   sqlpkg.sh publicar <dacpac> <base> [opciones extra]
 #   sqlpkg.sh extraer  <base> <salida.dacpac>
+#   sqlpkg.sh extraer-scripts <base> <carpeta>   (un .sql por objeto, para importar una base existente)
 set -euo pipefail
 PERFIL="${PERFIL:-deployment/publicacion.publish.xml}"
 : "${SQL_SERVER:?falta SQL_SERVER}" "${SQL_USER:?falta SQL_USER}" "${SQL_PASSWORD:?falta SQL_PASSWORD}"
@@ -45,6 +46,19 @@ case "$accion" in
       "/SourcePassword:$SQL_PASSWORD" /SourceTrustServerCertificate:True /SourceEncryptConnection:True /SourceTimeout:60 \
       "/TargetFile:$salida" /p:ExtractAllTableData=False /p:IgnorePermissions=True /p:IgnoreUserLoginMappings=True \
       /p:VerifyExtraction=False 2>&1 | tee "$LOG_SQLPKG"
+    rc=${PIPESTATUS[0]}; set -e
+    [ "$rc" -ne 0 ] && anotar "$LOG_SQLPKG"
+    exit "$rc"
+    ;;
+  extraer-scripts)
+    # Genera un archivo .sql por objeto (carpetas esquema/TipoDeObjeto), para importar una base existente
+    base="$1"; carpeta="$2"; rm -rf "$carpeta"
+    set +e
+    sqlpackage /Action:Extract "/SourceServerName:$SERVIDOR" "/SourceDatabaseName:$base" "/SourceUser:$SQL_USER" \
+      "/SourcePassword:$SQL_PASSWORD" /SourceTrustServerCertificate:True /SourceEncryptConnection:True /SourceTimeout:60 \
+      "/TargetFile:$carpeta" /p:ExtractTarget=SchemaObjectType /p:ExtractApplicationScopedObjectsOnly=True \
+      /p:ExtractAllTableData=False /p:IgnorePermissions=True /p:IgnoreUserLoginMappings=True /p:VerifyExtraction=False \
+      2>&1 | tee "$LOG_SQLPKG"
     rc=${PIPESTATUS[0]}; set -e
     [ "$rc" -ne 0 ] && anotar "$LOG_SQLPKG"
     exit "$rc"

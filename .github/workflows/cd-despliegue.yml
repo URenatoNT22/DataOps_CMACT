@@ -141,6 +141,16 @@ jobs:
           NIVEL=$(python3 -c "import json;print(json.load(open('evidencias/riesgo.json'))['nivel'])")
           echo "nivel=$NIVEL" >> "$GITHUB_OUTPUT"
 
+          # Protección: una base que el pipeline nunca administró (sin ctl.HISTORIAL_DESPLIEGUE) y que tiene
+          # objetos que no están en el repositorio NO se toca: el despliegue los eliminaría.
+          ESTADO=$(python3 scripts/ci/db.py --base "$DB" estado-base)
+          ADMIN=$(echo "$ESTADO" | python3 -c "import json,sys;print(json.load(sys.stdin)['administrada'])")
+          DROPS=$(python3 -c "import json;print(len(json.load(open('evidencias/riesgo.json'))['operaciones'].get('Drop',[])))")
+          if [ "$ADMIN" = "False" ] && [ "$DROPS" != "0" ]; then
+            echo "::error title=Base no administrada por el pipeline::$DB tiene $DROPS objeto(s) que no están en el repositorio y el despliegue los ELIMINARÍA. No se despliega. Si es una base existente, primero importe sus objetos con el workflow 'Importar base existente' (docs/06_GUIA_PASO_A_PASO.md)."
+            exit 1
+          fi
+
           if [ "$NIVEL" = "PROHIBIDO" ] || [ "${{ steps.pr.outputs.riesgo }}" = "PROHIBIDO" ]; then
             echo "::error title=Riesgo PROHIBIDO::El cambio no puede desplegarse por el pipeline."; exit 1
           fi
@@ -169,9 +179,11 @@ jobs:
       - name: Validación post-deploy
         run: |
           python3 scripts/ci/db.py --base "$DB" smoke --probar-carga --salida evidencias/smoke.json
-          N=$(python3 scripts/ci/db.py --base "$DB" consulta --json --sql "SELECT COUNT(*) AS n FROM tab.TB_CREDITO" | python3 -c "import json,sys;print(json.load(sys.stdin)[0]['n'])")
+          N=$(python3 scripts/ci/db.py --base "$DB" estado-base | python3 -c "import json,sys;print(json.load(sys.stdin)['filas_tablones'])")
           if [ "$N" = "0" ]; then
             echo "::notice::$DB sin datos: se omiten las pruebas de datos. Ejecute el workflow 'Datos de demo'."
+          elif ! ls tests/datos/*.sql >/dev/null 2>&1; then
+            echo "::notice::No hay pruebas de datos en tests/datos."
           else
             python3 scripts/ci/db.py --base "$DB" pruebas --carpeta tests/datos --salida evidencias/pruebas.json
           fi

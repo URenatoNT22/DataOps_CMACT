@@ -1,0 +1,64 @@
+# =====================================================================================
+#  IMPORTAR BASE EXISTENTE
+#  Genera el SQL Project a partir de una base que ya existe (un .sql por objeto) y lo deja en una
+#  rama nueva para revisarlo por Pull Request. No modifica la base: solo LEE su estructura.
+#  Se usa una sola vez por base, al incorporarla al proceso DataOps.
+# =====================================================================================
+name: Importar base existente
+
+on:
+  workflow_dispatch:
+    inputs:
+      base:
+        description: "Nombre de la base a importar (debe existir en la instancia de SQL_SERVER)"
+        required: true
+      rama:
+        description: "Rama donde se dejará el proyecto generado (sale de develop)"
+        required: true
+        default: feature/importa-base-existente
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  importar:
+    name: Importar ${{ inputs.base }}
+    runs-on: ubuntu-latest
+    env:
+      SQL_SERVER: ${{ secrets.SQL_SERVER }}
+      SQL_USER: ${{ secrets.SQL_USER }}
+      SQL_PASSWORD: ${{ secrets.SQL_PASSWORD }}
+      BASE: ${{ inputs.base }}
+      RAMA: ${{ inputs.rama }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: develop
+          fetch-depth: 0
+      - uses: ./.github/actions/preparar
+
+      - name: Leer la estructura de ${{ inputs.base }}
+        run: scripts/ci/sqlpkg.sh extraer-scripts "$BASE" ../extraido
+
+      - name: Reemplazar los objetos de demo por los de la base
+        run: |
+          python3 scripts/ci/importar.py ../extraido database/BI_Analitico --resumen ../resumen.md
+          cat ../resumen.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verificar que el proyecto compila
+        run: scripts/ci/build.sh 0.0.0 ../build.log || echo "::warning::El proyecto importado no compila todavía: revise los errores antes de abrir el PR."
+
+      - name: Publicar la rama ${{ inputs.rama }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$RAMA"
+          git add -A database tests setup
+          git commit -q -m "feat: importa la estructura de la base $BASE al SQL Project" -m "$(cat ../resumen.md)"
+          git push -f origin "$RAMA"
+          echo "### Siguiente paso" >> "$GITHUB_STEP_SUMMARY"
+          echo "Abrir un Pull Request de \`$RAMA\` hacia \`develop\`." >> "$GITHUB_STEP_SUMMARY"

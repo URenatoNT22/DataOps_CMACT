@@ -13,6 +13,9 @@ on:
         type: choice
         options: [BI_DEV, BI_PROD, ambas]
         default: ambas
+      confirmar:
+        description: 'Borra y regenera src.* y tab.* con datos INVENTADOS. Escriba DEMO para confirmar'
+        required: true
 
 permissions:
   contents: read
@@ -38,6 +41,13 @@ jobs:
       - uses: ./.github/actions/preparar
         with:
           dotnet: "false"
+      - name: Verificar que es una base de demo
+        env:
+          CONFIRMAR: ${{ inputs.confirmar }}
+        run: |
+          [ "$CONFIRMAR" = "DEMO" ] || { echo "::error::Escriba DEMO para confirmar."; exit 1; }
+          [ -f setup/02_datos_ficticios.sql ] || { echo "::error::Este proyecto no tiene datos de demo."; exit 1; }
+          python3 scripts/ci/db.py --base "$DB" consulta --sql "IF OBJECT_ID('src.CREDITO','U') IS NULL OR OBJECT_ID('ctl.HISTORIAL_DESPLIEGUE','U') IS NULL THROW 50000, 'La base no tiene el esquema de demo desplegado por el pipeline. Ejecute primero el workflow Despliegue.', 1;"
       - name: Generar datos ficticios y cargar tablones
         run: python3 scripts/ci/db.py --base "$DB" script --archivo setup/02_datos_ficticios.sql
       - name: Pruebas de datos

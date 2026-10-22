@@ -193,9 +193,15 @@ def cmd_smoke(args):
         conn2 = conectar(args.base, autocommit=False)
         cur2 = conn2.cursor()
         try:
-            cur2.execute("SELECT MAX(FECHA_CORTE) FROM [tab].[TB_CREDITO]")
-            fecha = cur2.fetchone()[0]
-            if fecha is None:
+            cur2.execute("SELECT OBJECT_ID('ctl.usp_CARGA_DIARIA','P'), OBJECT_ID('tab.TB_CREDITO','U')")
+            proc, tabla = cur2.fetchone()
+            fecha = None
+            if proc and tabla:
+                cur2.execute("SELECT MAX(FECHA_CORTE) FROM [tab].[TB_CREDITO]")
+                fecha = cur2.fetchone()[0]
+            if not (proc and tabla):
+                resultados.append({"prueba": "carga_ejecutable", "estado": "OMITIDA", "detalle": "el proyecto no tiene el orquestador de demo"})
+            elif fecha is None:
                 resultados.append({"prueba": "carga_ejecutable", "estado": "OMITIDA", "detalle": "sin datos cargados"})
             else:
                 cur2.execute("EXEC [ctl].[usp_CARGA_DIARIA] @FECHA_CORTE = %s", (str(fecha),))
@@ -277,6 +283,54 @@ def cmd_version(args):
     print(json.dumps(fila or {}, default=str))
 
 
+def _escalar(cur, sql):
+    cur.execute(sql)
+    fila = cur.fetchone()
+    return fila[0] if fila else None
+
+
+def cmd_preparar_datos(args):
+    """Prepara datos para las pruebas: si el proyecto tiene la semilla de demo la ejecuta cuando las
+    tablas están vacías; si ya hay datos, re-ejecuta la carga con el código nuevo. Si el proyecto no es
+    el de demo (base real importada), no hace nada."""
+    conn = conectar(args.base)
+    cur = conn.cursor()
+    tiene_fuente = _escalar(cur, "SELECT OBJECT_ID('src.CREDITO','U')")
+    tiene_carga = _escalar(cur, "SELECT OBJECT_ID('ctl.usp_CARGA_DIARIA','P')")
+    if not Path(args.semilla).exists() or not tiene_fuente:
+        print("Sin semilla de datos aplicable: se omite (proyecto distinto al de demo).")
+        conn.close()
+        return
+    filas = _escalar(cur, "SELECT COUNT(*) FROM [src].[CREDITO]")
+    conn.close()
+    if filas == 0 or args.solo_semilla:
+        print(f"Cargando datos de prueba con {args.semilla}...")
+        cmd_script(argparse.Namespace(base=args.base, archivo=args.semilla))
+    elif tiene_carga:
+        print("Re-ejecutando la carga de tablones con el código nuevo...")
+        conn = conectar(args.base)
+        conn.cursor().execute("EXEC [ctl].[usp_CARGA_DIARIA] @FECHA_CORTE = NULL")
+        conn.close()
+
+
+def cmd_estado_base(args):
+    """Describe la base: si existe, cuántos objetos de usuario tiene y si ya la administra el pipeline."""
+    conn = conectar("master")
+    cur = conn.cursor()
+    existe = _escalar(cur, f"SELECT DB_ID(N'{args.base.replace(chr(39), '')}')") is not None
+    conn.close()
+    datos = {"base": args.base, "existe": existe, "objetos": 0, "administrada": False, "filas_tablones": None}
+    if existe:
+        conn = conectar(args.base)
+        cur = conn.cursor()
+        datos["objetos"] = _escalar(cur, "SELECT COUNT(*) FROM sys.objects WHERE is_ms_shipped = 0 AND type IN ('U','V','P','FN','IF','TF')")
+        datos["administrada"] = _escalar(cur, "SELECT OBJECT_ID('ctl.HISTORIAL_DESPLIEGUE','U')") is not None
+        if _escalar(cur, "SELECT OBJECT_ID('tab.TB_CREDITO','U')"):
+            datos["filas_tablones"] = _escalar(cur, "SELECT COUNT(*) FROM [tab].[TB_CREDITO]")
+        conn.close()
+    print(json.dumps(datos))
+
+
 def _guardar(ruta, datos):
     if ruta:
         Path(ruta).parent.mkdir(parents=True, exist_ok=True)
@@ -302,6 +356,9 @@ def main():
         s.add_argument(f"--{a}", default="")
     s.set_defaults(f=cmd_registrar)
     s = sub.add_parser("version-instalada"); s.set_defaults(f=cmd_version)
+    s = sub.add_parser("preparar-datos"); s.add_argument("--semilla", default="setup/02_datos_ficticios.sql")
+    s.add_argument("--solo-semilla", action="store_true"); s.set_defaults(f=cmd_preparar_datos)
+    s = sub.add_parser("estado-base"); s.set_defaults(f=cmd_estado_base)
 
     args = p.parse_args()
     try:

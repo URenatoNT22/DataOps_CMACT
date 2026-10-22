@@ -124,7 +124,7 @@ jobs:
         if: hashFiles('artefactos/base/BI_Analitico.dacpac') != ''
         run: |
           scripts/ci/sqlpkg.sh publicar artefactos/base/BI_Analitico.dacpac "$BASE_CI"
-          python3 scripts/ci/db.py --base "$BASE_CI" script --archivo setup/02_datos_ficticios.sql
+          python3 scripts/ci/db.py --base "$BASE_CI" preparar-datos --solo-semilla
 
       - name: Plan de cambios contra la base efímera (versión actual + datos)
         run: |
@@ -147,13 +147,7 @@ jobs:
           fi
 
       - name: Cargar datos (si la base estaba vacía) y re-ejecutar la carga con el código nuevo
-        run: |
-          N=$(python3 scripts/ci/db.py --base "$BASE_CI" consulta --json --sql "SELECT COUNT(*) AS n FROM src.CREDITO" | python3 -c "import json,sys;print(json.load(sys.stdin)[0]['n'])")
-          if [ "$N" = "0" ]; then
-            python3 scripts/ci/db.py --base "$BASE_CI" script --archivo setup/02_datos_ficticios.sql
-          else
-            python3 scripts/ci/db.py --base "$BASE_CI" consulta --sql "EXEC ctl.usp_CARGA_DIARIA @FECHA_CORTE = NULL"
-          fi
+        run: python3 scripts/ci/db.py --base "$BASE_CI" preparar-datos
 
       - name: Pruebas de datos
         run: python3 scripts/ci/db.py --base "$BASE_CI" pruebas --carpeta tests/datos --salida resultados/pruebas.json --no-fallar
