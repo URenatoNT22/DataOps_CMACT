@@ -26,21 +26,22 @@ jobs:
           python3 scripts/ci/db.py --base REAL consulta --sql "CREATE TABLE dbo.VENTAS(ID INT PRIMARY KEY, MONTO DECIMAL(18,2) NULL)"
           python3 scripts/ci/db.py --base REAL consulta --sql "CREATE VIEW dbo.vw_VENTAS AS SELECT ID, MONTO FROM dbo.VENTAS"
           python3 scripts/ci/db.py --base REAL consulta --sql "CREATE USER u1 WITHOUT LOGIN; GRANT SELECT ON dbo.VENTAS TO u1;"
-          python3 scripts/ci/db.py --base REAL estado-base
+          echo "::notice::ESTADO $(python3 scripts/ci/db.py --base REAL estado-base)"
       - name: guard de despliegue (debe detectar drops)
         run: |
           scripts/ci/build.sh 1.0.0 b.log
           scripts/ci/sqlpkg.sh reporte database/BI_Analitico/bin/Release/BI_Analitico.dacpac REAL rep.xml
           python3 scripts/ci/clasificar_riesgo.py --deploy-report rep.xml --proyecto none --salida r.json
-          python3 -c "import json;d=json.load(open('r.json'));print('DROPS', [i['objeto'] for i in d['operaciones'].get('Drop',[])])"
+          python3 -c "import json;d=json.load(open('r.json'));print('::notice::DROPS', [i['objeto'] for i in d['operaciones'].get('Drop',[])])"
       - name: importar
         run: |
           scripts/ci/sqlpkg.sh extraer-scripts REAL ../extraido
-          find ../extraido -type f | head -30
+          echo "::notice::EXTRAIDO $(find ../extraido -type f | tr '\n' ' ')"
           python3 scripts/ci/importar.py ../extraido database/BI_Analitico --resumen ../resumen.md
-          find database tests setup -type f | sort
+          echo "::notice::ARCHIVOS $(find database tests setup -type f | sort | tr '\n' ' ')"
           scripts/ci/build.sh 0.0.0 ../build2.log
           scripts/ci/sqlpkg.sh reporte database/BI_Analitico/bin/Release/BI_Analitico.dacpac REAL rep2.xml
           python3 scripts/ci/clasificar_riesgo.py --deploy-report rep2.xml --proyecto database --salida r2.json
-          python3 -c "import json;d=json.load(open('r2.json'));print('NIVEL',d['nivel'],d['resumen_operaciones'],d['operaciones'])"
+          python3 -c "import json;d=json.load(open('r2.json'));print('::notice::NIVEL',d['nivel'],d['resumen_operaciones'],[(k,[i['objeto'] for i in v]) for k,v in d['operaciones'].items()], d['motivos'])"
           python3 scripts/ci/db.py --base REAL preparar-datos
+          echo "::notice::RESUMEN $(cat ../resumen.md | tr '\n' '|')"
