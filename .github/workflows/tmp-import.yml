@@ -32,7 +32,16 @@ jobs:
           scripts/ci/build.sh 1.0.0 b.log
           scripts/ci/sqlpkg.sh reporte database/BI_Analitico/bin/Release/BI_Analitico.dacpac REAL rep.xml
           python3 scripts/ci/clasificar_riesgo.py --deploy-report rep.xml --proyecto none --salida r.json
-          python3 -c "import json;d=json.load(open('r.json'));print('::notice::DROPS', [i['objeto'] for i in d['operaciones'].get('Drop',[])])"
+          python3 -c "import json;d=json.load(open('r.json'));print('::notice::GUARD', d['nivel'], d['resumen_operaciones'], [i['objeto'] for i in d['operaciones'].get('Drop',[])])"
+      - name: permisos excluidos
+        run: |
+          printf 'GRANT SELECT ON SCHEMA::[rpt] TO [public];\nGO\n' > database/BI_Analitico/Security/P.sql
+          scripts/ci/build.sh 1.0.1 b3.log
+          python3 scripts/ci/db.py --base master consulta --sql "CREATE DATABASE [VACIA]"
+          scripts/ci/sqlpkg.sh reporte database/BI_Analitico/bin/Release/BI_Analitico.dacpac VACIA rep3.xml
+          python3 scripts/ci/clasificar_riesgo.py --deploy-report rep3.xml --proyecto none --salida r3.json
+          python3 -c "import json;d=json.load(open('r3.json'));print('::notice::PERMISOS', d['nivel'], d['resumen_operaciones'], d['motivos'])"
+          rm database/BI_Analitico/Security/P.sql
       - name: importar
         run: |
           scripts/ci/sqlpkg.sh extraer-scripts REAL ../extraido
