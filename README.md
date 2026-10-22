@@ -30,6 +30,7 @@ flowchart LR
 | Despliegue | `cd-despliegue.yml` | `develop → BI_DEV`, `main → BI_PROD`. Foto previa, recálculo de riesgo, deploy, validación post-deploy, release y auditoría. |
 | Auditoría TI | `auditoria.yml` | Dictamen de TI por etiquetas, plazos (SLA) y habilitación de rollback. |
 | Rollback | `rollback.yml` | Solo TI. Vuelve a una versión aprobada usando el mismo pipeline. |
+| Importar base existente | `importar-base.yml` | Genera el SQL Project desde una base real (una sola vez), en una rama para revisar por PR. |
 | Control de drift | `drift.yml` | Cada noche detecta cambios manuales hechos fuera del pipeline. |
 | Reglas de riesgo | `deployment/reglas_riesgo.yml` | Qué es ESTÁNDAR, SENSIBLE o PROHIBIDO. Dueño: TI. |
 | Perfil de despliegue | `deployment/publicacion.publish.xml` | Nunca toca seguridad; bloquea la pérdida de datos salvo autorización de TI. |
@@ -43,6 +44,7 @@ flowchart LR
 3. [Instalación de la demo](docs/03_INSTALACION.md): SQL Server, ngrok, secretos, protección de ramas.
 4. [Guion de la demo](docs/04_GUION_DEMO.md): paso a paso para presentarla.
 5. [Paso a Gitea](docs/05_MIGRACION_GITEA.md): qué cambia al implementarlo en Gitea.
+6. **[Guía paso a paso](docs/06_GUIA_PASO_A_PASO.md): configuración, base real y un ejemplo completo de DEV a PROD.**
 
 ## Estructura
 
