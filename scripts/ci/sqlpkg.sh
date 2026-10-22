@@ -9,6 +9,8 @@ set -euo pipefail
 PERFIL="${PERFIL:-deployment/publicacion.publish.xml}"
 : "${SQL_SERVER:?falta SQL_SERVER}" "${SQL_USER:?falta SQL_USER}" "${SQL_PASSWORD:?falta SQL_PASSWORD}"
 SERVIDOR="tcp:${SQL_SERVER#tcp:}"
+# Seguridad: gestionada por TI. El pipeline nunca crea, modifica ni elimina estos tipos de objeto.
+TIPOS_SEGURIDAD="Users;Logins;RoleMembership;Permissions;ApplicationRoles;DatabaseRoles;ServerRoles;ServerRoleMembership;Credentials;DatabaseScopedCredentials;LinkedServers;LinkedServerLogins"
 
 destino() {
   echo "/TargetServerName:$SERVIDOR"; echo "/TargetDatabaseName:$1"; echo "/TargetUser:$SQL_USER"
@@ -34,7 +36,8 @@ case "$accion" in
     if [ "$accion" != "publicar" ]; then salida=("/OutputPath:$1"); shift; mkdir -p "$(dirname "${salida[0]#/OutputPath:}")"; fi
     set +e
     sqlpackage "/Action:${act[$accion]}" "/SourceFile:$dacpac" "${dst[@]}" "/Profile:$PERFIL" "${salida[@]}" \
-      /p:CommandTimeout=0 "$@" 2>&1 | tee "$LOG_SQLPKG"
+      /p:CommandTimeout=0 "/p:ExcludeObjectTypes=$TIPOS_SEGURIDAD" "/p:DoNotDropObjectTypes=$TIPOS_SEGURIDAD" \
+      "$@" 2>&1 | tee "$LOG_SQLPKG"
     rc=${PIPESTATUS[0]}; set -e
     [ "$rc" -ne 0 ] && anotar "$LOG_SQLPKG"
     exit "$rc"
