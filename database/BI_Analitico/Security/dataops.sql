@@ -1,0 +1,2 @@
+CREATE SCHEMA [ctl] AUTHORIZATION [dbo];
+GO

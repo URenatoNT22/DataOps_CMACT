@@ -18,5 +18,6 @@
     <!-- La versión del DACPAC la inyecta el pipeline: dotnet build /p:DacVersion=1.2.3 -->
     <DacVersion Condition="'$(DacVersion)' == ''">1.0.0</DacVersion>
     <DacDescription>Ambiente analítico de Inteligencia de Negocios (tablones desnormalizados)</DacDescription>
+    <ProjectGuid>{00000000-0000-0000-0000-000000000000}</ProjectGuid>
   </PropertyGroup>
 </Project>
