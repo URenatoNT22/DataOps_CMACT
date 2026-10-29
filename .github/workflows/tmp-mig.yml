@@ -1,0 +1,48 @@
+name: tmp mig
+on:
+  push:
+    branches: [tmp/cd]
+defaults:
+  run:
+    shell: bash
+jobs:
+  t:
+    runs-on: ubuntu-latest
+    services:
+      mssql:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env: {ACCEPT_EULA: "Y", MSSQL_SA_PASSWORD: "Ci_Efimera#2026"}
+        ports: ["1433:1433"]
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P 'Ci_Efimera#2026' -Q 'SELECT 1' -b -o /dev/null"
+          --health-interval 10s --health-timeout 5s --health-retries 15
+    env: {SQL_SERVER: "localhost,1433", SQL_USER: sa, SQL_PASSWORD: "Ci_Efimera#2026"}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/preparar
+      - run: |
+          python3 scripts/ci/db.py --base master consulta --sql "CREATE DATABASE [T]"
+          scripts/ci/build.sh 1.0.0 b.log
+          scripts/ci/sqlpkg.sh publicar database/BI_Analitico/bin/Release/BI_Analitico.dacpac T
+          mkdir -p m
+          printf -- "-- descripcion: inserta prueba\nINSERT INTO ctl.RESPALDO_DATOS(SCRIPT,TABLA,FILA_JSON) VALUES ('a','x','{}'),('a','x','{}');\n" > m/20261029_0001_inserta.sql
+          printf -- "-- descripcion: actualiza prueba\nINSERT INTO [ctl].[RESPALDO_DATOS] ([SCRIPT],[TABLA],[FILA_JSON]) SELECT 'b','ctl.RESPALDO_DATOS',(SELECT t.* FOR JSON PATH, WITHOUT_ARRAY_WRAPPER) FROM ctl.RESPALDO_DATOS t WHERE SCRIPT='a';\nGO\nUPDATE ctl.RESPALDO_DATOS SET TABLA='y' WHERE SCRIPT='a';\n" > m/20261029_0002_actualiza.sql
+          python3 scripts/ci/db.py --base T migraciones --carpeta m --salida p1.json
+          python3 scripts/ci/db.py --base T migraciones --carpeta m --aplicar --version v9 --salida a1.json
+          python3 scripts/ci/db.py --base T migraciones --carpeta m --aplicar --salida a2.json
+          echo "::notice::PLAN $(python3 -c "import json;print([(r['script'],r['estado'],r['tipo']) for r in json.load(open('p1.json'))['resultados']])")"
+          echo "::notice::APLICAR1 $(python3 -c "import json;print([(r['script'],r['estado'],r['filas']) for r in json.load(open('a1.json'))['resultados']])")"
+          echo "::notice::APLICAR2 $(python3 -c "import json;print([(r['script'],r['estado']) for r in json.load(open('a2.json'))['resultados']])")"
+          echo "::notice::TABLA $(python3 scripts/ci/db.py --base T consulta --json --sql "SELECT (SELECT COUNT(*) FROM ctl.RESPALDO_DATOS) total, (SELECT COUNT(*) FROM ctl.RESPALDO_DATOS WHERE TABLA='y') actualizadas, (SELECT COUNT(*) FROM ctl.SCRIPTS_EJECUTADOS) scripts")"
+          printf -- "UPDATE ctl.RESPALDO_DATOS SET TABLA='z';\n" >> m/20261029_0001_inserta.sql
+          printf -- "INSERT INTO ctl.RESPALDO_DATOS(SCRIPT,TABLA,FILA_JSON) VALUES ('c','x','{}');\nSELECT 1/0;\n" > m/20261029_0003_falla.sql
+          printf -- "ALTER TABLE ctl.RESPALDO_DATOS ADD X INT;\n" > m/20261029_0004_ddl.sql
+          python3 scripts/ci/db.py --base T migraciones --carpeta m --aplicar --salida a3.json --no-fallar
+          echo "::notice::APLICAR3 $(python3 -c "import json;print([(r['script'],r['estado']) for r in json.load(open('a3.json'))['resultados']])")"
+          rm m/20261029_0001_inserta.sql
+          python3 scripts/ci/db.py --base T migraciones --carpeta m --aplicar --salida a4.json --no-fallar
+          echo "::notice::APLICAR4 $(python3 -c "import json;print([(r['script'],r['estado'],r['detalle'][:80]) for r in json.load(open('a4.json'))['resultados']])")"
+          echo "::notice::FILAS_C $(python3 scripts/ci/db.py --base T consulta --json --sql "SELECT COUNT(*) n FROM ctl.RESPALDO_DATOS WHERE SCRIPT='c'")"
+          mkdir -p migraciones && cp m/20261029_0002_actualiza.sql migraciones/ && printf 'migraciones/20261029_0002_actualiza.sql\n' > arch.txt
+          python3 scripts/ci/clasificar_riesgo.py --archivos arch.txt --proyecto none --salida r.json
+          echo "::notice::RIESGO $(python3 -c "import json;d=json.load(open('r.json'));print(d['nivel'],d['motivos'])")"
