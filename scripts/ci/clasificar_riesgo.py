@@ -19,6 +19,8 @@ from pathlib import Path
 
 import yaml
 
+sys.path.insert(0, str(Path(__file__).parent))
+
 NIVELES = ["ESTANDAR", "SENSIBLE", "PROHIBIDO"]
 
 
@@ -86,6 +88,19 @@ def clasificar(reglas, operaciones, alertas, script, archivos, proyecto):
                 if "tmp_ms_xx" in linea:  # renombres internos de un TableRebuild (ya reportado como operación)
                     continue
                 subir("SENSIBLE", f"{regla['motivo']}: `{linea[:160]}`")
+
+    # Migraciones de datos incluidas en el cambio
+    carpeta_mig = reglas.get("migraciones", {}).get("carpeta", "migraciones/")
+    for archivo in archivos:
+        if archivo.startswith(carpeta_mig) and archivo.endswith(".sql") and Path(archivo).exists():
+            from db import tipo_migracion  # misma regla que aplica el ejecutor
+            tipo = tipo_migracion(Path(archivo).read_text(encoding="utf-8-sig"))
+            if tipo == "DDL":
+                subir("PROHIBIDO", f"Migración con cambios de estructura o permisos (van en el SQL Project): {archivo}")
+            elif tipo == "MODIFICA":
+                subir("SENSIBLE", f"Migración de datos con UPDATE/DELETE/MERGE/TRUNCATE: {archivo}")
+            else:
+                subir("ESTANDAR", f"Migración de datos (inserción): {archivo}")
 
     for archivo in archivos:
         for prefijo in reglas.get("archivos_gobierno", []):

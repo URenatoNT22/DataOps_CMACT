@@ -170,6 +170,11 @@ jobs:
             /p:BlockOnPossibleDataLoss=$BLOQUEAR 2>&1 | tee evidencias/despliegue.log
           test "${PIPESTATUS[0]}" -eq 0
 
+      - name: Migraciones de datos (INSERT / UPDATE / DELETE) en ${{ env.DB }}
+        run: |
+          python3 scripts/ci/db.py --base "$DB" migraciones --aplicar --version "${{ steps.version.outputs.version }}" \
+            --ejecutado-por "$GITHUB_ACTOR" --url "$RUN_URL" --salida evidencias/migraciones.json
+
       - name: Registrar despliegue en ctl.HISTORIAL_DESPLIEGUE
         run: |
           python3 scripts/ci/db.py --base "$DB" registrar-despliegue \

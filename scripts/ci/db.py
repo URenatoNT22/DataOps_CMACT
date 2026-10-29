@@ -18,6 +18,7 @@ Subcomandos:
     version-instalada      Devuelve la última versión registrada en ctl.HISTORIAL_DESPLIEGUE.
 """
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -333,6 +334,95 @@ def cmd_estado_base(args):
     print(json.dumps(datos))
 
 
+RE_DDL = re.compile(r"\b(CREATE|ALTER|DROP)\s+(TABLE\s+(?!#)|VIEW|PROC(EDURE)?|FUNCTION|SCHEMA|INDEX|TRIGGER|SYNONYM|SEQUENCE|TYPE|USER|LOGIN|ROLE)"
+                    r"|^\s*(GRANT|DENY|REVOKE)\b|\bsp_rename\b|\bxp_cmdshell\b", re.I | re.M)
+RE_MODIFICA = re.compile(r"\b(UPDATE|DELETE|MERGE|TRUNCATE)\b", re.I)
+RE_INSERTA = re.compile(r"\bINSERT\b", re.I)
+
+
+def tipo_migracion(texto):
+    """DDL (prohibido) | MODIFICA (update/delete/merge/truncate) | INSERTA | OTRO."""
+    limpio = re.sub(r"/\*.*?\*/", "", texto, flags=re.S)
+    limpio = re.sub(r"--[^\n]*", "", limpio)
+    limpio = re.sub(r"'(?:[^']|'')*'", "''", limpio)  # ignora textos entre comillas
+    if RE_DDL.search(limpio):
+        return "DDL"
+    sin_respaldo = re.sub(r"INSERT\s+INTO\s+\[?ctl\]?\.\[?RESPALDO_DATOS\]?", "", limpio, flags=re.I)
+    if RE_MODIFICA.search(sin_respaldo):
+        return "MODIFICA"
+    if RE_INSERTA.search(limpio):
+        return "INSERTA"
+    return "OTRO"
+
+
+def cmd_migraciones(args):
+    """Plan o ejecución de las migraciones de datos (carpeta migraciones/). Cada script se ejecuta una vez,
+    dentro de una transacción, y queda registrado en ctl.SCRIPTS_EJECUTADOS con su huella SHA-256."""
+    archivos = sorted(Path(args.carpeta).glob("*.sql")) if Path(args.carpeta).exists() else []
+    solo = {x.strip().split("/")[-1] for x in (args.solo or "").split(",") if x.strip()}
+    conn = conectar(args.base, autocommit=False)
+    cur = conn.cursor()
+    existe = _escalar(cur, "SELECT OBJECT_ID('ctl.SCRIPTS_EJECUTADOS','U')") is not None
+    ejecutadas = {}
+    if existe:
+        cur.execute("SELECT NOMBRE, HASH_SHA256 FROM ctl.SCRIPTS_EJECUTADOS")
+        ejecutadas = {n: h for n, h in cur.fetchall()}
+    conn.commit()
+
+    resultados, error = [], False
+    for f in archivos:
+        texto = f.read_text(encoding="utf-8-sig")
+        huella = hashlib.sha256(texto.replace("\r\n", "\n").encode("utf-8")).hexdigest()
+        r = {"script": f.name, "tipo": tipo_migracion(texto), "descripcion": _cabecera(texto, "descripcion", ""),
+             "filas": None, "detalle": ""}
+        if f.name in ejecutadas:
+            r["estado"] = "EJECUTADA" if ejecutadas[f.name] == huella else "MODIFICADA"
+            if r["estado"] == "MODIFICADA":
+                r["detalle"] = "El script ya se ejecutó y luego fue editado. Cree un script nuevo en lugar de modificarlo."
+                error = True
+        elif solo and f.name not in solo:
+            r["estado"] = "OMITIDA"
+            r["detalle"] = "No forma parte de este cambio"
+        elif r["tipo"] == "DDL":
+            r["estado"], error = "RECHAZADA", True
+            r["detalle"] = "Contiene cambios de estructura o permisos: van en el SQL Project, no en migraciones."
+        else:
+            r["estado"] = "PENDIENTE"
+            if args.aplicar and not error:
+                if not existe:
+                    r["estado"], r["detalle"], error = "ERROR", "No existe ctl.SCRIPTS_EJECUTADOS: despliegue primero el proyecto.", True
+                else:
+                    try:
+                        filas = 0
+                        for lote in lotes(texto):
+                            cur.execute(lote)
+                            if cur.rowcount and cur.rowcount > 0:
+                                filas += cur.rowcount
+                            while cur.nextset():
+                                pass
+                        cur.execute("""INSERT INTO ctl.SCRIPTS_EJECUTADOS
+                            (NOMBRE, HASH_SHA256, TIPO, DESCRIPCION, FILAS_AFECTADAS, VERSION, EJECUTADO_POR, URL_EJECUCION)
+                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
+                                    (f.name, huella, r["tipo"], r["descripcion"][:500] or None, filas,
+                                     args.version or None, args.ejecutado_por, args.url or None))
+                        conn.commit()
+                        r["estado"], r["filas"] = "APLICADA", filas
+                    except Exception as exc:
+                        conn.rollback()
+                        r["estado"], r["detalle"], error = "ERROR", f"Se revirtió todo el script: {str(exc)[:400]}", True
+        resultados.append(r)
+        icono = {"APLICADA": "✅", "EJECUTADA": "☑️", "PENDIENTE": "⏳", "OMITIDA": "➖"}.get(r["estado"], "❌")
+        print(f"{icono} {f.name}: {r['estado']} ({r['tipo']}) {r['detalle']}")
+        if r["estado"] in ("ERROR", "RECHAZADA", "MODIFICADA"):
+            print(f"::error title=Migración {f.name}::{r['estado']}: {r['detalle']}")
+    conn.close()
+    _guardar(args.salida, {"tipo": "migraciones", "base": args.base, "aplicar": bool(args.aplicar), "resultados": resultados})
+    if not archivos:
+        print("No hay migraciones de datos.")
+    if error and not args.no_fallar:
+        sys.exit("Hay migraciones con error")
+
+
 def _guardar(ruta, datos):
     if ruta:
         Path(ruta).parent.mkdir(parents=True, exist_ok=True)
@@ -361,6 +451,10 @@ def main():
     s = sub.add_parser("preparar-datos"); s.add_argument("--semilla", default="setup/02_datos_ficticios.sql")
     s.add_argument("--solo-semilla", action="store_true"); s.set_defaults(f=cmd_preparar_datos)
     s = sub.add_parser("estado-base"); s.set_defaults(f=cmd_estado_base)
+    s = sub.add_parser("migraciones"); s.add_argument("--carpeta", default="migraciones")
+    s.add_argument("--aplicar", action="store_true"); s.add_argument("--solo", default="")
+    s.add_argument("--version", default=""); s.add_argument("--ejecutado-por", default="pipeline"); s.add_argument("--url", default="")
+    s.add_argument("--salida"); s.add_argument("--no-fallar", action="store_true"); s.set_defaults(f=cmd_migraciones)
 
     args = p.parse_args()
     try:

@@ -149,6 +149,16 @@ jobs:
       - name: Cargar datos (si la base estaba vacía) y re-ejecutar la carga con el código nuevo
         run: python3 scripts/ci/db.py --base "$BASE_CI" preparar-datos
 
+      - name: Migraciones de datos del PR (prueba en base efímera)
+        run: |
+          NUEVAS=$(grep -E '^migraciones/[^/]+\.sql$' artefactos/archivos_modificados.txt | tr '\n' ',' || true)
+          if [ -n "$NUEVAS" ]; then
+            python3 scripts/ci/db.py --base "$BASE_CI" migraciones --aplicar --solo "$NUEVAS" \
+              --ejecutado-por ci --salida resultados/migraciones.json
+          else
+            echo "El PR no incluye migraciones de datos."
+          fi
+
       - name: Pruebas de datos
         run: python3 scripts/ci/db.py --base "$BASE_CI" pruebas --carpeta tests/datos --salida resultados/pruebas.json --no-fallar
 
@@ -213,6 +223,10 @@ jobs:
         run: |
           scripts/ci/sqlpkg.sh reporte artefactos/nuevo/BI_Analitico.dacpac "$DB_DESTINO" destino/deploy_report.xml
           scripts/ci/sqlpkg.sh script  artefactos/nuevo/BI_Analitico.dacpac "$DB_DESTINO" destino/deploy_script.sql
+
+      - name: Migraciones de datos pendientes en ${{ env.DB_DESTINO }}
+        if: steps.conexion.outputs.ok == 'true'
+        run: python3 scripts/ci/db.py --base "$DB_DESTINO" migraciones --salida destino/migraciones.json --no-fallar
 
       - name: Jobs de SQL Agent que usan los objetos afectados
         if: steps.conexion.outputs.ok == 'true'
@@ -284,6 +298,7 @@ jobs:
             --riesgo reporte/riesgo.json --pruebas entrada/pruebas/pruebas.json --smoke entrada/pruebas/smoke.json \
             --jobs entrada/destino/jobs.json --upgrade entrada/pruebas/upgrade.json --script "$SCRIPT_DESPLIEGUE" \
             --build-log entrada/build/build.log --contexto reporte/contexto.json \
+            --migraciones "$( [ -f entrada/destino/migraciones.json ] && echo entrada/destino/migraciones.json || echo entrada/pruebas/migraciones.json )" \
             --salida-md reporte/comentario.md --salida-html reporte/reporte_cambio.html
           cat reporte/comentario.md >> "$GITHUB_STEP_SUMMARY"
 
@@ -329,5 +344,8 @@ jobs:
         run: |
           NIVEL=$(python3 -c "import json;print(json.load(open('reporte/riesgo.json'))['nivel'])")
           if [ "$NIVEL" = "PROHIBIDO" ]; then echo "::error title=Riesgo PROHIBIDO::El cambio incluye elementos que el pipeline no puede desplegar."; exit 1; fi
+          if [ -f entrada/destino/migraciones.json ] && python3 -c "import json,sys;sys.exit(0 if any(r['estado'] in ('MODIFICADA','RECHAZADA') for r in json.load(open('entrada/destino/migraciones.json'))['resultados']) else 1)"; then
+            echo "::error title=Migraciones::Hay migraciones modificadas después de ejecutarse o con cambios de estructura."; exit 1
+          fi
           if [ "${{ needs.pruebas.result }}" != "success" ]; then echo "::error title=Pruebas::Las pruebas en la base efímera fallaron."; exit 1; fi
           echo "Riesgo $NIVEL · pruebas OK"
