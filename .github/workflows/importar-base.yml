@@ -50,7 +50,8 @@ jobs:
           cat ../resumen.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Verificar que el proyecto compila
-        run: scripts/ci/build.sh 0.0.0 ../build.log || echo "::warning::El proyecto importado no compila todavía: revise los errores antes de abrir el PR."
+        run: |
+          scripts/ci/build.sh 0.0.0 ../build.log || echo "::warning::El proyecto importado no compila todavía. Revise los errores antes de abrir el PR."
 
       - name: Publicar la rama ${{ inputs.rama }}
         run: |

@@ -1,0 +1,20 @@
+-- descripcion: Qué corrige este script y por qué (una línea).
+-- solicitado por: área / persona / ticket
+-- Copiar como migraciones/AAAAMMDD_HHMM_descripcion.sql
+SET NOCOUNT ON;
+
+-- 1. Respaldo de las filas que se van a modificar o borrar (obligatorio en UPDATE / DELETE)
+INSERT INTO [ctl].[RESPALDO_DATOS] ([SCRIPT], [TABLA], [FILA_JSON])
+SELECT '20261029_1730_ejemplo.sql', 'dbo.MI_TABLA',
+       (SELECT t.* FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)
+FROM [dbo].[MI_TABLA] AS t
+WHERE t.[ID] IN (1, 2, 3);
+
+-- 2. Cambio de datos
+UPDATE [dbo].[MI_TABLA]
+   SET [ESTADO] = 'ANULADO'
+ WHERE [ID] IN (1, 2, 3);
+
+-- INSERT de ejemplo (si el valor ya existe no se duplica):
+-- INSERT INTO [dbo].[MI_CATALOGO] ([CODIGO], [NOMBRE])
+-- SELECT 'X01', 'Nuevo valor' WHERE NOT EXISTS (SELECT 1 FROM [dbo].[MI_CATALOGO] WHERE [CODIGO] = 'X01');
