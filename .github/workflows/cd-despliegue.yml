@@ -128,6 +128,7 @@ jobs:
             core.info(JSON.stringify(salida));
 
       - name: Foto del estado previo de ${{ env.DB }} (para rollback y auditoría)
+        continue-on-error: true
         run: scripts/ci/sqlpkg.sh extraer "$DB" "evidencias/estado_previo_${DB}.dacpac"
 
       - name: Plan de despliegue y recálculo de riesgo contra ${{ env.DB }}
@@ -224,7 +225,7 @@ jobs:
           gh release create "$V" --target "$GITHUB_SHA" --title "$V · ${PR_TITULO:-despliegue manual}" \
             --notes-file evidencias/notas_release.md \
             "evidencias/BI_Analitico-$V.dacpac" evidencias/deploy_script.sql evidencias/deploy_report.xml \
-            "evidencias/estado_previo_${DB}.dacpac" evidencias/smoke.json $( [ -f evidencias/pruebas.json ] && echo evidencias/pruebas.json )
+            $( [ -f "evidencias/estado_previo_${DB}.dacpac" ] && echo "evidencias/estado_previo_${DB}.dacpac" ) evidencias/smoke.json $( [ -f evidencias/pruebas.json ] && echo evidencias/pruebas.json )
 
       - name: Abrir auditoría posterior de TI
         if: env.ES_PROD == 'true'

@@ -48,6 +48,7 @@ case "$accion" in
     sqlpackage /Action:Extract "/SourceServerName:$SERVIDOR" "/SourceDatabaseName:$base" "/SourceUser:$SQL_USER" \
       "/SourcePassword:$SQL_PASSWORD" /SourceTrustServerCertificate:True /SourceEncryptConnection:True /SourceTimeout:60 \
       "/TargetFile:$salida" /p:ExtractAllTableData=False /p:IgnorePermissions=True /p:IgnoreUserLoginMappings=True \
+      /p:ExtractApplicationScopedObjectsOnly=True \
       /p:VerifyExtraction=False 2>&1 | tee "$LOG_SQLPKG"
     rc=${PIPESTATUS[0]}; set -e
     [ "$rc" -ne 0 ] && anotar "$LOG_SQLPKG"
