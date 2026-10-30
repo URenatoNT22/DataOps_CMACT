@@ -22,4 +22,4 @@ runs:
         python-version: "3.12"
     - name: Librerías Python
       shell: bash
-      run: pip install --quiet pymssql pyyaml
+      run: pip install --quiet pymssql pyyaml python-docx openpyxl
