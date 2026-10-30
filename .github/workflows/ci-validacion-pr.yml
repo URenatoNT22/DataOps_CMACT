@@ -302,6 +302,30 @@ jobs:
             --salida-md reporte/comentario.md --salida-html reporte/reporte_cambio.html
           cat reporte/comentario.md >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Borrador del acta del pase (sección D y Anexo 01)
+        continue-on-error: true
+        env:
+          CUERPO: ${{ github.event.pull_request.body }}
+          TITULO: ${{ github.event.pull_request.title }}
+          APLICACION: ${{ vars.APLICACION || 'BI_ANALITICO' }}
+        run: |
+          python3 - <<'EOF'
+          import json, os
+          pr = {"numero": ${{ github.event.pull_request.number }}, "titulo": os.environ["TITULO"], "autor": "${{ github.event.pull_request.user.login }}",
+                "cuerpo": os.environ.get("CUERPO") or "", "url": "${{ github.event.pull_request.html_url }}", "aprobadores": "(pendiente)"}
+          json.dump([pr], open("reporte/prs.json", "w"), ensure_ascii=False)
+          ctx = {"aplicacion": os.environ["APLICACION"], "version": "PR #${{ github.event.pull_request.number }}",
+                 "numero_acta": "BORRADOR_PR${{ github.event.pull_request.number }}", "ambiente": os.environ["DB_DESTINO"],
+                 "estado": "BORRADOR", "base": os.environ["DB_DESTINO"], "servidor": "(se completa al desplegar)",
+                 "ejecutado_por": "(se completa al desplegar)", "commit": "${{ github.event.pull_request.head.sha }}"}
+          json.dump(ctx, open("reporte/contexto_acta.json", "w"), ensure_ascii=False)
+          EOF
+          MIG=entrada/destino/migraciones.json; [ -f "$MIG" ] || MIG=entrada/pruebas/migraciones.json
+          python3 scripts/ci/acta.py --contexto reporte/contexto_acta.json --riesgo reporte/riesgo.json --migraciones "$MIG" \
+            --jobs entrada/destino/jobs.json --pruebas entrada/pruebas/pruebas.json --smoke entrada/pruebas/smoke.json \
+            --prs reporte/prs.json --dacpac entrada/build/nuevo/BI_Analitico.dacpac --salida reporte/acta_borrador
+          printf '\n📝 **Borrador del acta del pase** (sección D en Word y Anexo 01 en Excel): artefacto `reporte-cambio` → carpeta `acta_borrador`. Se completa automáticamente al desplegar.\n' >> reporte/comentario.md
+
       - uses: actions/upload-artifact@v5
         with:
           name: reporte-cambio

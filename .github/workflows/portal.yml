@@ -1,0 +1,84 @@
+# =====================================================================================
+#  PORTAL DATAOPS (dashboard general)
+#  Sitio estático con secciones conectadas: Resumen · Pases a producción (actas) ·
+#  Validaciones · Inventario de datos sensibles · Diccionario de datos.
+#  Se actualiza después de cada despliegue, todas las mañanas y a pedido.
+#
+#  CONFIDENCIALIDAD: GitHub Pages de un repositorio público es público. Con datos reales,
+#  publicar en un servidor interno (ver docs/05_MIGRACION_GITEA.md) o usar un repositorio privado.
+# =====================================================================================
+name: Portal DataOps
+
+on:
+  workflow_run:
+    workflows: [Despliegue, Auditoría TI, Control de drift]
+    types: [completed]
+  schedule:
+    - cron: "30 12 * * 1-5"   # 07:30 hora Lima
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+  issues: read
+  pull-requests: read
+  actions: read
+
+concurrency:
+  group: portal
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  publicar:
+    name: Generar y publicar el portal
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.pages.outputs.page_url }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      R: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: ./.github/actions/preparar
+
+      - name: Datos de GitHub (releases, PR, despliegues, alertas)
+        run: |
+          mkdir -p datos actas
+          gh api "repos/$R/releases?per_page=50" > datos/releases.json
+          gh api "repos/$R/pulls?state=open&per_page=50" > datos/prs.json
+          gh api "repos/$R/actions/workflows/cd-despliegue.yml/runs?per_page=50" --jq '.workflow_runs' > datos/runs.json
+          gh api "repos/$R/issues?state=open&per_page=100" > datos/issues.json
+          for TAG in $(jq -r '.[] | select(any(.assets[]; .name == "acta.json")) | .tag_name' datos/releases.json); do
+            gh release download "$TAG" --pattern acta.json --pattern actividades.html --dir "actas/$TAG" --clobber || true
+          done
+
+      - name: Modelo vigente y diccionario de datos
+        run: |
+          scripts/ci/build.sh 0.0.0 build.log
+          VERSION=$(jq -r '.[0].tag_name // ""' datos/releases.json)
+          jq '[.[] | {tag: .tag_name, titulo: .name, fecha: .published_at, url: .html_url}]' datos/releases.json > datos/releases_dic.json
+          python3 scripts/ci/documentar.py sitio --dacpac database/BI_Analitico/bin/Release/BI_Analitico.dacpac \
+            --proyecto database --releases datos/releases_dic.json \
+            --version "$VERSION" --salida diccionario
+
+      - name: Portal
+        run: |
+          python3 scripts/ci/portal.py --releases datos/releases.json --actas actas --prs datos/prs.json \
+            --despliegues datos/runs.json --issues datos/issues.json \
+            --dacpac database/BI_Analitico/bin/Release/BI_Analitico.dacpac --diccionario diccionario \
+            --aplicacion "${{ vars.APLICACION || 'BI_ANALITICO' }}" --salida sitio
+
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: sitio
+      - id: pages
+        uses: actions/deploy-pages@v4
