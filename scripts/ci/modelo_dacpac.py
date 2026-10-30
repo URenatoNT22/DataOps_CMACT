@@ -38,6 +38,7 @@ class Columna:
     default: str = ""
     descripcion: str = ""
     calculada: bool = False
+    sensible: str = ""          # categoría de dato sensible (propiedad extendida DatoSensible)
 
     def firma(self):
         return f"{self.tipo} {'NULL' if self.nulo else 'NOT NULL'}{' IDENTITY' if self.identidad else ''}" \
@@ -131,7 +132,7 @@ def cargar(ruta_dacpac):
     with zipfile.ZipFile(ruta_dacpac) as z:
         raiz = ET.fromstring(z.read("model.xml"))
     modelo = raiz.find(f"{NS}Model")
-    objetos, descripciones, defaults, pks = {}, {}, {}, {}
+    objetos, descripciones, defaults, pks, sensibles = {}, {}, {}, {}, {}
     indices = []
 
     for el in modelo.findall(f"{NS}Element"):
@@ -159,10 +160,11 @@ def cargar(ruta_dacpac):
             o.depende_de = deps
             objetos[nombre] = o
         elif tipo == "SqlExtendedProperty":
-            if partes and partes[-1] == "MS_Description":
-                host = (_referencias(el, "Host") or [None])[0]
-                if host:
-                    descripciones[host] = _limpiar_valor_ep(_valor_propiedad(el, "Value"))
+            host = (_referencias(el, "Host") or [None])[0]
+            if partes and host and partes[-1] == "MS_Description":
+                descripciones[host] = _limpiar_valor_ep(_valor_propiedad(el, "Value"))
+            elif partes and host and partes[-1] == "DatoSensible":
+                sensibles[host] = _limpiar_valor_ep(_valor_propiedad(el, "Value"))
         elif tipo == "SqlDefaultConstraint":
             col = (_referencias(el, "ForColumn") or [None])[0]
             if col:
@@ -187,6 +189,7 @@ def cargar(ruta_dacpac):
         for c in o.columnas:
             ref = f"{nombre}.[{c.nombre}]"
             c.descripcion = descripciones.get(ref, "")
+            c.sensible = sensibles.get(ref, "")
             c.default = defaults.get(ref, "")
         # dependencias a nivel de objeto (descarta columnas, tipos y el propio objeto)
         resueltas = set()

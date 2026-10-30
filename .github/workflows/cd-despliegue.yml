@@ -127,6 +127,25 @@ jobs:
             for (const [k, v] of Object.entries(salida)) core.setOutput(k, v);
             core.info(JSON.stringify(salida));
 
+            // Pull Requests que forman parte de este pase (alimentan el acta)
+            const aprobadoresDe = async n => [...new Set((await github.paginate(github.rest.pulls.listReviews, { owner, repo, pull_number: n }))
+              .filter(r => r.state === 'APPROVED').map(r => r.user.login))].join(', ');
+            const ficha = async p => ({ numero: p.number, titulo: p.title, autor: p.user.login, cuerpo: p.body || '',
+              url: p.html_url, aprobadores: await aprobadoresDe(p.number) });
+            let incluidos = [];
+            if (context.ref === 'refs/heads/main') {
+              let desde = '1970-01-01T00:00:00Z';
+              try { desde = (await github.rest.repos.getLatestRelease({ owner, repo })).data.published_at; } catch (e) {}
+              const cerrados = await github.paginate(github.rest.pulls.list, { owner, repo, state: 'closed', base: 'develop', per_page: 100 });
+              incluidos = cerrados.filter(p => p.merged_at && p.merged_at > desde);
+            }
+            if (!incluidos.length && pr) incluidos = [pr];
+            const fichas = [];
+            for (const p of incluidos.slice(0, 50)) fichas.push(await ficha(p));
+            require('fs').mkdirSync('evidencias', { recursive: true });
+            require('fs').writeFileSync('evidencias/prs.json', JSON.stringify(fichas, null, 2));
+            core.info(`PR incluidos en el pase: ${fichas.map(f => '#' + f.numero).join(', ') || 'ninguno'}`);
+
       - name: Foto del estado previo de ${{ env.DB }} (para rollback y auditoría)
         continue-on-error: true
         run: scripts/ci/sqlpkg.sh extraer "$DB" "evidencias/estado_previo_${DB}.dacpac"
@@ -170,6 +189,11 @@ jobs:
             /p:BlockOnPossibleDataLoss=$BLOQUEAR 2>&1 | tee evidencias/despliegue.log
           test "${PIPESTATUS[0]}" -eq 0
 
+      - name: Migraciones de datos (INSERT / UPDATE / DELETE) en ${{ env.DB }}
+        run: |
+          python3 scripts/ci/db.py --base "$DB" migraciones --aplicar --version "${{ steps.version.outputs.version }}" \
+            --ejecutado-por "$GITHUB_ACTOR" --url "$RUN_URL" --salida evidencias/migraciones.json
+
       - name: Registrar despliegue en ctl.HISTORIAL_DESPLIEGUE
         run: |
           python3 scripts/ci/db.py --base "$DB" registrar-despliegue \
@@ -189,6 +213,37 @@ jobs:
             python3 scripts/ci/db.py --base "$DB" pruebas --carpeta tests/datos --salida evidencias/pruebas.json
           fi
 
+      - name: Acta del pase (sección D y Anexo 01 - Inventario de tablas)
+        continue-on-error: true
+        env:
+          APROBADORES: ${{ steps.pr.outputs.aprobadores }}
+          APLICACION: ${{ vars.APLICACION || 'BI_ANALITICO' }}
+          SERVIDOR_ETIQUETA: ${{ vars.SERVIDOR_ETIQUETA }}
+        run: |
+          OBJETOS=$(python3 -c "import json;d=json.load(open('evidencias/riesgo.json'));print(','.join(sorted({i['objeto'] for v in d['operaciones'].values() for i in v if i['objeto'].count('[')==2})))")
+          python3 scripts/ci/db.py --base "$DB" dependencias-jobs --objetos "$OBJETOS" --salida evidencias/jobs.json || true
+          python3 - <<'EOF'
+          import json, os, re
+          srv = os.environ.get("SERVIDOR_ETIQUETA") or ""
+          if not srv:
+              host, _, puerto = os.environ["SQL_SERVER"].replace("tcp:", "").partition(",")
+              partes = host.split(".")
+              srv = (".".join([partes[0]] + ["***"] * (len(partes) - 1)) if len(partes) > 1 else "***") + (f",{puerto}" if puerto else "") + " (enmascarado)"
+          ctx = {"aplicacion": os.environ["APLICACION"], "version": "${{ steps.version.outputs.version }}",
+                 "version_anterior": "${{ steps.version.outputs.anterior }}", "ambiente": "PROD" if os.environ["ES_PROD"] == "true" else "DEV",
+                 "estado": "EXITOSO", "base": os.environ["DB"], "servidor": srv,
+                 "ejecutado_por": "Pipeline DataOps · disparado por " + os.environ["GITHUB_ACTOR"],
+                 "aprobadores": os.environ.get("APROBADORES", ""), "run_url": os.environ["RUN_URL"], "commit": os.environ["GITHUB_SHA"],
+                 "release_url": (os.environ["GITHUB_SERVER_URL"] + "/" + os.environ["GITHUB_REPOSITORY"] + "/releases/tag/${{ steps.version.outputs.version }}") if os.environ["ES_PROD"] == "true" else ""}
+          json.dump(ctx, open("evidencias/contexto_acta.json", "w"), ensure_ascii=False)
+          EOF
+          python3 scripts/ci/acta.py --contexto evidencias/contexto_acta.json --riesgo evidencias/riesgo.json \
+            --migraciones evidencias/migraciones.json --jobs evidencias/jobs.json --pruebas evidencias/pruebas.json \
+            --smoke evidencias/smoke.json --prs evidencias/prs.json \
+            --dacpac "evidencias/BI_Analitico-${{ steps.version.outputs.version }}.dacpac" --salida evidencias/acta
+          echo "### Acta del pase generada" >> "$GITHUB_STEP_SUMMARY"
+          ls evidencias/acta | sed 's/^/- /' >> "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/upload-artifact@v5
         if: always()
         with:
@@ -203,6 +258,7 @@ jobs:
           PR_AUTOR: ${{ steps.pr.outputs.autor }}
           PR_APROBADORES: ${{ steps.pr.outputs.aprobadores }}
         run: |
+          shopt -s nullglob
           V="${{ steps.version.outputs.version }}"; ANT="${{ steps.version.outputs.anterior }}"
           RES=$(python3 -c "import json;d=json.load(open('evidencias/riesgo.json'));print(' · '.join(f'{k}: {v}' for k,v in sorted(d['resumen_operaciones'].items())) or 'sin cambios de esquema')")
           PR="${{ steps.pr.outputs.numero }}"
@@ -218,14 +274,15 @@ jobs:
             echo "| **Versión anterior (rollback)** | ${ANT:-ninguna} |"
             echo "| **Ejecución** | $RUN_URL |"
             echo
-            echo "Adjuntos: DACPAC desplegado, script ejecutado, deploy report, foto previa de la base y resultados de validación."
+            echo "Adjuntos: **Acta del pase (sección D, Word)**, **Anexo 01 - Inventario de tablas (Excel)**, DACPAC desplegado, script ejecutado, deploy report, foto previa de la base y resultados de validación."
             echo
             echo "**Auditoría de TI:** pendiente"
           } > evidencias/notas_release.md
           gh release create "$V" --target "$GITHUB_SHA" --title "$V · ${PR_TITULO:-despliegue manual}" \
             --notes-file evidencias/notas_release.md \
             "evidencias/BI_Analitico-$V.dacpac" evidencias/deploy_script.sql evidencias/deploy_report.xml \
-            $( [ -f "evidencias/estado_previo_${DB}.dacpac" ] && echo "evidencias/estado_previo_${DB}.dacpac" ) evidencias/smoke.json $( [ -f evidencias/pruebas.json ] && echo evidencias/pruebas.json )
+            $( [ -f "evidencias/estado_previo_${DB}.dacpac" ] && echo "evidencias/estado_previo_${DB}.dacpac" ) evidencias/smoke.json $( [ -f evidencias/pruebas.json ] && echo evidencias/pruebas.json ) \
+            evidencias/acta/*.docx evidencias/acta/*.xlsx evidencias/acta/acta.json evidencias/acta/actividades.html
 
       - name: Abrir auditoría posterior de TI
         if: env.ES_PROD == 'true'
@@ -276,35 +333,3 @@ jobs:
           Commit: $GITHUB_SHA · PR: ${{ steps.pr.outputs.numero && format('#{0}', steps.pr.outputs.numero) || 'n/a' }}
           Responsable de análisis: Inteligencia de Negocios. Si el despliegue quedó parcial en PROD, TI evalúa ejecutar el workflow Rollback."
 
-  documentacion:
-    name: Publicar diccionario de datos
-    needs: desplegar
-    if: github.ref_name == 'main' && needs.desplegar.result == 'success'
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    permissions:
-      contents: read
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.pages.outputs.page_url }}
-    env:
-      GH_TOKEN: ${{ github.token }}
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-      - uses: ./.github/actions/preparar
-      - name: Generar diccionario
-        run: |
-          scripts/ci/build.sh "${{ needs.desplegar.outputs.version }}" build.log
-          gh release list --limit 30 --json tagName,name,publishedAt \
-            --jq '[.[] | {tag: .tagName, titulo: .name, fecha: .publishedAt, url: ("${{ github.server_url }}/${{ github.repository }}/releases/tag/" + .tagName)}]' > releases.json
-          python3 scripts/ci/documentar.py sitio --dacpac "$DACPAC_BUILD" --proyecto database \
-            --releases releases.json --version "${{ needs.desplegar.outputs.version }}" --salida sitio
-      - uses: actions/upload-pages-artifact@v4
-        with:
-          path: sitio
-      - id: pages
-        uses: actions/deploy-pages@v4

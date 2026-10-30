@@ -24,9 +24,23 @@ elif base == "develop":
         errores.append(("Nombre de rama", f"Use feature/<ticket>-<descripcion>, fix/..., docs/... en minúsculas. Rama actual: {rama}"))
 
 sin_comentarios = re.sub(r"<!--.*?-->", "", cuerpo, flags=re.S)
-m = re.search(r"##\s*Motivo[^\n]*\n(.*?)(?=\n##\s|\Z)", sin_comentarios, flags=re.S | re.I)
+m = re.search(r"##[^\n]*Motivo[^\n]*\n(.*?)(?=\n##\s|\n---|\Z)", sin_comentarios, flags=re.S | re.I)
 if not m or len(m.group(1).strip()) < 10:
     errores.append(("Descripción del PR", "Complete la sección '## Motivo' de la plantilla (qué necesidad de negocio atiende)."))
+
+# Datos del acta (*): se avisan como advertencia para que el acta no salga incompleta
+if base in ("develop", "main") and rama != "develop":
+    faltantes = []
+    for etiqueta in ("Código de requerimiento", "Área solicitante"):
+        mm = re.search(rf"\*\*{etiqueta}[^*]*\*\*\s*:?[ \t]*([^\n]*)", sin_comentarios, flags=re.I)
+        if not mm or not mm.group(1).strip():
+            faltantes.append(etiqueta)
+    for etiqueta in ("Tipo de pase", "Afecta cierre diario", "Afecta performance", "Criticidad"):
+        mm = re.search(rf"\*\*{etiqueta}[^*]*\*\*[^\n]*\[[xX]\]", sin_comentarios, flags=re.I)
+        if not mm:
+            faltantes.append(etiqueta)
+    if faltantes:
+        print("::warning title=Datos del acta incompletos::Complete en la descripción del PR: " + ", ".join(faltantes))
 
 for titulo_err, msg in errores:
     print(f"::error title={titulo_err}::{msg}")

@@ -35,6 +35,8 @@ flowchart LR
 | Reglas de riesgo | `deployment/reglas_riesgo.yml` | Qué es ESTÁNDAR, SENSIBLE o PROHIBIDO. Dueño: TI. |
 | Perfil de despliegue | `deployment/publicacion.publish.xml` | Nunca toca seguridad; bloquea la pérdida de datos salvo autorización de TI. |
 | Pruebas de datos | `tests/datos/*.sql` | Cada consulta devuelve filas = falla. Incluye pruebas de **indicadores de negocio**. |
+| Acta del pase | `scripts/ci/acta.py` | Sección D del acta (Word y web) y Anexo 01 - Inventario de tablas (Excel), en cada PR (borrador) y despliegue. |
+| Portal DataOps | `portal.yml` | Dashboard general: resumen, pases con sus actas, validaciones, inventario de datos sensibles y diccionario. |
 | Documentación automática | `scripts/ci/documentar.py` | Reporte HTML de cada cambio y **diccionario de datos** publicado en GitHub Pages. |
 
 ## Documentación
@@ -45,6 +47,7 @@ flowchart LR
 4. [Guion de la demo](docs/04_GUION_DEMO.md): paso a paso para presentarla.
 5. [Paso a Gitea](docs/05_MIGRACION_GITEA.md): qué cambia al implementarlo en Gitea.
 6. **[Guía paso a paso](docs/06_GUIA_PASO_A_PASO.md): configuración, base real y un ejemplo completo de DEV a PROD.**
+7. [Acta del pase y Portal DataOps](docs/07_ACTA_Y_PORTAL.md): sección D, Anexo 01 de tablas y dashboard general.
 
 ## Estructura
 

@@ -147,6 +147,7 @@ def cmd_cambio(a):
     smoke = leer_json(a.smoke)
     jobs = (leer_json(a.jobs) or {}).get("jobs", [])
     upgrade = leer_json(a.upgrade) or {}
+    migraciones = [r for r in (leer_json(a.migraciones) or {}).get("resultados", []) if r["estado"] != "EJECUTADA"]
     script = Path(a.script).read_text(encoding="utf-8-sig") if a.script and Path(a.script).exists() else ""
     avisos = advertencias_build(a.build_log)
 
@@ -197,6 +198,12 @@ def cmd_cambio(a):
         md_l.append("")
     if grafo:
         md_l += ["```mermaid", grafo, "```", ""]
+    if migraciones:
+        md_l += ["### Migraciones de datos", "| Script | Tipo | Estado | Descripción |", "|---|---|---|---|"]
+        tipos = {"INSERTA": "INSERT", "MODIFICA": "UPDATE/DELETE", "DDL": "⛔ estructura", "OTRO": "otro"}
+        for r in migraciones:
+            md_l.append(f"| `{r['script']}` | {tipos.get(r['tipo'], r['tipo'])} | {r['estado']} | {r.get('descripcion') or r.get('detalle') or ''} |")
+        md_l.append("")
     ops = riesgo.get("resumen_operaciones") or {}
     if ops:
         md_l.append("### Plan de despliegue (SqlPackage)")
@@ -299,6 +306,13 @@ def cmd_cambio(a):
         for al in riesgo.get("alertas", []):
             h.append(f"<p><span class='pill p-warn'>{e(al['alerta'])}</span> {e(al['detalle'])}</p>")
         h.append("</div>")
+    if migraciones:
+        h.append("<h2>Migraciones de datos</h2><div class='card'><table><tr><th>Script</th><th>Tipo</th><th>Estado</th><th>Detalle</th></tr>")
+        for r in migraciones:
+            cls = {"APLICADA": "p-ok", "PENDIENTE": "p-info", "OMITIDA": "p-mut"}.get(r["estado"], "p-err")
+            h.append(f"<tr><td><code>{e(r['script'])}</code></td><td>{e(r['tipo'])}</td><td><span class='pill {cls}'>{e(r['estado'])}</span></td>"
+                     f"<td>{e(r.get('descripcion') or '')} {e(r.get('detalle') or '')}</td></tr>")
+        h.append("</table></div>")
     if pruebas or smoke:
         h.append("<h2>Pruebas</h2><div class='card'><table><tr><th>Prueba</th><th>Resultado</th><th>Detalle</th></tr>")
         for conj in (pruebas, smoke):
@@ -430,7 +444,7 @@ def main():
     c = sub.add_parser("cambio")
     c.add_argument("--dacpac-nuevo", required=True)
     c.add_argument("--dacpac-base")
-    for x in ("riesgo", "pruebas", "smoke", "jobs", "upgrade", "script", "build-log", "contexto"):
+    for x in ("riesgo", "pruebas", "smoke", "jobs", "upgrade", "script", "build-log", "contexto", "migraciones"):
         c.add_argument(f"--{x}")
     c.add_argument("--salida-md", default="reporte/comentario.md")
     c.add_argument("--salida-html", default="reporte/reporte_cambio.html")

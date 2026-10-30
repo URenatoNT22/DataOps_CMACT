@@ -53,6 +53,17 @@ Ejemplos:
 | Nada de permisos, usuarios ni roles en el proyecto | Es PROHIBIDO: lo gestiona TI |
 | Cambios de estructura (renombrar, cambiar tipo) | Usar el refactor del proyecto; se clasifican como SENSIBLES |
 
+## Cambios de datos (INSERT / UPDATE / DELETE)
+
+Los cambios de **estructura** van en `database/`. Los cambios de **datos** van como scripts en `migraciones/`:
+
+- Nombre `AAAAMMDD_HHMM_descripcion.sql`. Se ejecutan en orden, **una sola vez por base**, dentro de una transacción.
+- Quedan registrados en `ctl.SCRIPTS_EJECUTADOS`. Un script ya ejecutado **no se edita**: se crea uno nuevo.
+- Antes de un `UPDATE` / `DELETE` se respaldan las filas en `ctl.RESPALDO_DATOS`.
+- Solo `INSERT` = ESTÁNDAR · `UPDATE/DELETE/MERGE/TRUNCATE` = SENSIBLE · estructura o permisos = PROHIBIDO.
+
+Detalle y plantilla: [`migraciones/README.md`](../migraciones/README.md).
+
 ## Pruebas de datos
 
 Archivo `.sql` en `tests/datos/` que **devuelve filas solo cuando hay problema**:

@@ -70,3 +70,8 @@ archivos_gobierno:
   - .github/
   - deployment/
   - scripts/ci/
+
+# Migraciones de datos (carpeta migraciones/): solo INSERT = ESTANDAR; UPDATE/DELETE/MERGE/TRUNCATE = SENSIBLE;
+# estructura o permisos = PROHIBIDO. La detección está en scripts/ci/db.py (tipo_migracion).
+migraciones:
+  carpeta: migraciones/
